@@ -1,3 +1,4 @@
+import 'package:get/get.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:healthvault/utils/app_colors/app_colors.dart';
@@ -29,7 +30,7 @@ class DocumentPickerField extends StatelessWidget {
           children: [
             ListTile(
               leading: Icon(Icons.photo_library, color: AppColors.primaryColor),
-              title: const Text("Gallery"),
+              title: Text("Gallery".tr),
               onTap: () async {
                 final XFile? file =
                 await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
@@ -41,7 +42,7 @@ class DocumentPickerField extends StatelessWidget {
             ),
             ListTile(
               leading: Icon(Icons.camera_alt, color: AppColors.primaryColor),
-              title: const Text("Camera"),
+              title: Text("Camera".tr),
               onTap: () async {
                 final XFile? file =
                 await picker.pickImage(source: ImageSource.camera, imageQuality: 80);

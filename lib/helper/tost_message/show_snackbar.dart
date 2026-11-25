@@ -43,8 +43,8 @@ class AppSnackBar {
         Duration duration = const Duration(seconds: 3),
       }) {
     Get.snackbar(
-      title ?? '', // ✅ title optional
-      message,     // ✅ message mandatory
+      (title ?? '').tr,
+      message.tr, // static texts are translated; server messages pass through
       snackPosition: SnackPosition.TOP,
       backgroundColor: backgroundColor,
       colorText: textColor,

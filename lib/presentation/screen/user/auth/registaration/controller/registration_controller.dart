@@ -41,6 +41,8 @@ class RegistrationController extends GetxController {
   /// Selection states
   final selectedBloodLabel = ''.obs;
   final selectedBloodCode = ''.obs;
+  /// API value (MALE / FEMALE / OTHER) – the field shows the translated label.
+  final selectedGender = ''.obs;
 
   void setBloodGroup({required String label, required String code}) {
     selectedBloodLabel.value = label;

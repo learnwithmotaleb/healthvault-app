@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:get/get.dart';
+import '../../../../../service/session_service.dart';
 
 import '../../../../../core/routes/route_path.dart';
 import '../../../../../helper/local_db/local_db.dart';
@@ -28,57 +29,36 @@ class ChangePasswordController extends GetxController {
   void toggleNewPassword() => isNewPasswordHidden.toggle();
   void toggleConfirmPassword() => isConfirmPasswordHidden.toggle();
 
-  /// ====================== CHANGE PASSWORD ======================
+  /// POST /auth/change-password → new tokens (old ones stop working)
   Future<void> changePassword() async {
     typePasswordFocus.unfocus();
     newPasswordFocus.unfocus();
     confirmPasswordFocus.unfocus();
-
     if (!(formKey.currentState?.validate() ?? false)) return;
 
-    final oldPassword = typePasswordController.text.trim();
-    final newPassword = newPasswordController.text.trim();
-    final confirmPassword = confirmPasswordController.text.trim();
-
-    if (newPassword != confirmPassword) {
+    final newPassword = newPasswordController.text;
+    if (newPassword.length < 8) {
+      AppSnackBar.fail("Password must be at least 8 characters");
+      return;
+    }
+    if (newPassword != confirmPasswordController.text) {
       AppSnackBar.fail("New password and confirm password do not match");
       return;
     }
 
-    final token = await SharePrefsHelper.getToken();
-    print("🔐 Token being sent: $token");
+    isLoading.value = true;
+    final res = await ApiClient().post(
+      url: ApiUrl.changePassword,
+      body: {"oldPassword": typePasswordController.text, "newPassword": newPassword},
+    );
+    isLoading.value = false;
 
-    try {
-      isLoading.value = true;
-
-      final api = ApiClient();
-
-      final res = await api.post(
-        url: ApiUrl.changePassword,
-        body: {
-          "oldPassword": oldPassword,
-          "newPassword": newPassword,
-        },
-        // Important: use isToken instead of isBasic
-        isToken: true,
-      );
-
-      isLoading.value = false;
-
-      print("📩 Change Password Response: ${res.body}");
-
-      if (res.statusCode == 200 && res.body["success"] == true) {
-        AppSnackBar.success(
-            res.body["message"] ?? "Password changed successfully");
-
-        /// Redirect back to profile
-        Get.offNamed(RoutePath.bottomNav);
-      } else {
-        AppSnackBar.fail(res.body["message"] ?? "Failed to change password");
-      }
-    } catch (e) {
-      isLoading.value = false;
-      AppSnackBar.fail("Error: $e");
+    if (res.isOk) {
+      if (res.data is Map) await SessionService.saveAuth(Map<String, dynamic>.from(res.data));
+      AppSnackBar.success(res.message);
+      Get.back();
+    } else {
+      AppSnackBar.fail(res.message);
     }
   }
 

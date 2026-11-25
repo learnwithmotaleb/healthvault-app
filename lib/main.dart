@@ -1,33 +1,36 @@
 import 'package:flutter/material.dart';
-import 'package:get/get_core/src/get_main.dart';
-import 'package:get/get_instance/src/extension_instance.dart';
-import 'package:healthvault/presentation/screen/emergency_screen/widget/map_request.dart';
-import 'package:healthvault/presentation/screen/provider/doctor_identification/controller/service_selection_controller.dart';
+import 'package:get/get.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 import 'app.dart';
 import 'global/language/controller/language_controller.dart';
 import 'helper/device_utils/device_utils.dart';
 import 'helper/local_db/local_db.dart';
 import 'helper/no_internet/controller/no_internet_controller.dart';
-import 'helper/role_controller/role_controller.dart';
+import 'presentation/screen/provider/doctor_identification/controller/service_selection_controller.dart';
+import 'service/session_service.dart';
+import 'service/socket_service.dart';
 
-void main() async{
-
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-
-  final LanguageController languageController = Get.put(LanguageController());
-  await languageController.loadLanguage();
-  MapRequest.requestLocationPermission();
-  DeviceUtils.lockDevicePortrait();
-  Get.put(ServiceSelectionController());
-  Get.put(InternetController(), permanent: true);
+  // Storage first – language, tokens and role are read from it.
   await SharePrefsHelper.init();
+  await initializeDateFormatting('en');
+  await initializeDateFormatting('el');
 
+  final languageController = Get.put(LanguageController(), permanent: true);
+  await languageController.loadLanguage();
 
+  DeviceUtils.lockDevicePortrait();
+  Get.put(ServiceSelectionController(), permanent: true);
+  Get.put(InternetController(), permanent: true);
+  Get.put(RealtimeService(), permanent: true);
 
+  if (SessionService.isLoggedIn) {
+    RealtimeService.to.connect();
+    SessionService.refreshMe(); // refresh cached profile in the background
+  }
 
-  runApp( MyApp());
+  runApp(MyApp());
 }
-
-

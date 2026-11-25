@@ -1,112 +1,66 @@
 import 'package:flutter/material.dart';
-import 'package:get/get_core/src/get_main.dart';
-import 'package:get/get_instance/src/extension_instance.dart';
-import 'package:get/get_navigation/src/extension_navigation.dart';
-import 'package:get/get_state_manager/src/rx_flutter/rx_obx_widget.dart';
-import 'package:get/get_utils/src/extensions/internacionalization.dart';
-import 'package:healthvault/presentation/widget/custom_appbar.dart';
-import 'package:healthvault/utils/app_colors/app_colors.dart';
-import 'package:healthvault/utils/static_strings/static_strings.dart';
-import 'package:shimmer/shimmer.dart';
+import 'package:get/get.dart';
 
-import '../../../../../core/responsive_layout/dimensions/dimensions.dart';
 import '../../../../../core/routes/route_path.dart';
-import '../../../../../utils/app_text_style/app_text_style.dart';
-import '../../../appointment/widget/appointment_card.dart';
-import '../controller/provider_task_controller.dart';
+import '../../../../../utils/app_colors/app_colors.dart';
+import '../../../../../utils/static_strings/static_strings.dart';
+import '../../../../widget/custom_appbar.dart';
+import '../../../../widget/hv_ui.dart';
+import '../../../appointment/controller/appointment_controller.dart';
+import '../../../appointment/widget/appointment_tile.dart';
 
-class ProviderTaskScreen extends StatefulWidget {
+/// Provider appointment list – GET /appointment/provider-appointments
+class ProviderTaskScreen extends StatelessWidget {
   const ProviderTaskScreen({super.key});
 
   @override
-  State<ProviderTaskScreen> createState() => _ProviderTaskScreenState();
-}
-
-class _ProviderTaskScreenState extends State<ProviderTaskScreen> {
-
-  final homeController = Get.put(ProviderTaskController());
-
-
-  @override
   Widget build(BuildContext context) {
+    final c = Get.isRegistered<AppointmentController>(tag: 'provider')
+        ? Get.find<AppointmentController>(tag: 'provider')
+        : Get.put(AppointmentController(forProvider: true), tag: 'provider');
+
     return Scaffold(
       backgroundColor: AppColors.whiteColor,
-      appBar: CommonAppBar(title: AppStrings.task.tr, showBack: false, ),
-      body: Column(
-        children: [
-          // Recent Appointments Title
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: Dimensions.w(10)),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                AppStrings.allRequests.tr,
-                style: AppTextStyles.title.copyWith(
-                  fontWeight: FontWeight.normal,
-                  color: AppColors.blackColor,
-                ),
-              ),
-            ),
-          ),
-          SizedBox(height: Dimensions.h(10),),
-
-
-          Expanded(
-            child: Obx(() {
-              if (homeController.isLoading.value) {
-                return ListView.separated(
-                  itemCount: 5,
-                  separatorBuilder: (_, __) => SizedBox(height: Dimensions.h(5)),
-                  itemBuilder: (context, index) => Shimmer.fromColors(
-                    baseColor: Colors.grey.shade300,
-                    highlightColor: Colors.grey.shade100,
-                    child: Container(
-                      margin: EdgeInsets.symmetric(horizontal: Dimensions.w(16)),
-                      height: Dimensions.h(80),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                );
-              }
-
-              if (homeController.appointments.isEmpty) {
-                return Center(
-                  child: Text("No appointments found"),
-                );
-              }
-
-              return ListView.separated(
-                itemCount: homeController.appointments.length,
-                separatorBuilder: (_, __) => SizedBox(height: Dimensions.h(5)),
-                itemBuilder: (context, index) {
-                  final appointment = homeController.appointments[index];
-                  final user = appointment.normalUserId;
-                  final service = appointment.serviceId;
-
-                  return AppointmentCard(
-                    doctorName: user?.fullName ?? "Unknown",
-                    service: service?.title ?? "",
-                    price: "\$${service?.price ?? 0}",
-                    dateTime: appointment.appointmentDateTime ?? "",
-                    status: appointment.status ?? "",
-                    onTap: (){
-
-                      Get.toNamed(RoutePath.providerDetails,
-                        arguments: appointment.sId.toString(),
+      appBar: CommonAppBar(title: AppStrings.task.tr, showBack: false),
+      body: Column(children: [
+        Obx(() => ChoiceBar(
+              values: const ['PENDING', 'upcoming', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'past', 'all'],
+              labels: ['Requests'.tr, 'Upcoming'.tr, 'Confirmed'.tr, 'Completed'.tr, 'Cancelled'.tr, 'Past'.tr, 'All'.tr],
+              selected: c.status.value,
+              onSelected: c.setStatus,
+            )),
+        Expanded(
+          child: Obx(() => NotificationListener<ScrollNotification>(
+                onNotification: (n) {
+                  if (n.metrics.pixels > n.metrics.maxScrollExtent - 200) c.loadMore();
+                  return false;
+                },
+                child: AsyncList(
+                  loading: c.isLoading.value,
+                  error: c.error.value,
+                  isEmpty: c.appointments.isEmpty,
+                  onRefresh: c.getMyAppointments,
+                  empty: EmptyView(icon: Icons.event_busy_outlined, title: 'No appointments'.tr),
+                  child: ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.only(bottom: 24),
+                    itemCount: c.appointments.length + (c.isLoadingMore.value ? 1 : 0),
+                    itemBuilder: (_, i) {
+                      if (i >= c.appointments.length) {
+                        return const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator()));
+                      }
+                      final a = c.appointments[i];
+                      return AppointmentTile(
+                        a: a,
+                        showPatient: true,
+                        onTap: () => Get.toNamed(RoutePath.appointmentDetails, arguments: {"id": a.id}),
                       );
                     },
-                  );
-                },
-              );
-
-            }),
-          ),
-        ],
-      ),
-
+                  ),
+                ),
+              )),
+        ),
+      ]),
     );
   }
 }

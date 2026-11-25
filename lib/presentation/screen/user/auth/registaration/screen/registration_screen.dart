@@ -25,7 +25,9 @@ class RegistrationScreen extends StatefulWidget {
 }
 
 class _RegistrationScreenState extends State<RegistrationScreen> {
-  final controller = Get.put(RegistrationController());
+  final controller = Get.isRegistered<RegistrationController>()
+      ? Get.find<RegistrationController>()
+      : Get.put(RegistrationController(), permanent: true);
 
 
 
@@ -81,38 +83,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(AppStrings.fullName.tr,   style: AppTextStyles.label),
-                    SizedBox(height: Dimensions.h(10)),
-
-                    TextFormField(
-                      controller: controller.fullNameController,
-                      focusNode: controller.fullNameFocus,
-                      keyboardType: TextInputType.name,
-                      decoration: InputDecoration(
-                        hintStyle: AppTextStyles.hint,
-                        hintText: AppStrings.enterYourName.tr,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 14,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6),
-                          borderSide:
-                          BorderSide(color: AppColors.primaryColor),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6),
-                          borderSide:
-                          BorderSide(color: AppColors.primaryColor),
-                        ),
-                      ),
-                      validator: AppValidators.required()
-                    ),
-                    const SizedBox(height: 20),
-
                     Text(AppStrings.dateOfBirth.tr,   style: AppTextStyles.label.copyWith(
 
                     )
@@ -146,6 +116,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     //   validator: AppValidators.required()
                     // ),
                     DatePickerField(controller: controller.dateOfBirthController,
+                      firstDate: DateTime(1900),
+                      lastDate: DateTime.now(),
                       hintText: AppStrings.enterYourDateOfBirth.tr,
                       focusNode: controller.dateOfBirthFocus,
 
@@ -160,6 +132,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       hintText: AppStrings.selectYourGender.tr,
                       validator: AppValidators.required(),
                       onSelected: (item) {
+                        controller.selectedGender.value = item['value']!.toUpperCase();
                         // item['label'] => e.g., "Male"
                         // item['value'] => e.g., "male"
                         // Store internally if needed:
@@ -323,10 +296,14 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     HVButton(
                       label: AppStrings.next.tr,
                       onPressed: (){
-
+                        if (!(controller.formKey.currentState?.validate() ?? false)) return;
+                        if (controller.genderController.text.trim().isEmpty ||
+                            controller.bloodGroupController.text.trim().isEmpty ||
+                            controller.dateOfBirthController.text.trim().isEmpty) {
+                          Get.snackbar("Health Vault", "Please select date of birth, gender and blood group");
+                          return;
+                        }
                         Get.toNamed(RoutePath.identification);
-
-
                       },
                       height: 52,
                       width: double.infinity,

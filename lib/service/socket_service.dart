@@ -1,60 +1,115 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:get/get.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
+
+import '../data/models/app_models.dart';
+import '../data/models/json.dart';
 import '../helper/local_db/local_db.dart';
-import '../utils/app_const/app_const.dart';
+import 'api_service.dart';
 import 'api_url.dart';
 
-class SocketApi {
-  // Singleton instance of the class
-  factory SocketApi() {
-    return _socketApi;
-  }
+/// Socket.io connection for live notifications and support chat.
+///
+/// Events (server → app): `notification`, `notification-count`,
+/// `support-message`, `support-status`.
+class RealtimeService extends GetxService {
+  static RealtimeService get to =>
+      Get.isRegistered<RealtimeService>() ? Get.find<RealtimeService>() : Get.put(RealtimeService(), permanent: true);
 
-  // Private constructor for singleton
-  SocketApi._internal();
+  io.Socket? _socket;
 
-  static late io.Socket socket;
+  final RxInt unreadCount = 0.obs;
+  final RxBool connected = false.obs;
 
-  ///<------------------------- Socket Initialization with dynamic User ID ---------------->
+  final _notifications = StreamController<NotificationModel>.broadcast();
+  final _supportMessages = StreamController<Map<String, dynamic>>.broadcast();
+  final _supportStatus = StreamController<String>.broadcast();
 
-  static void init() async {
-    String userId = "";// await SharePrefsHelper.getString(AppConstants.userID!);
-    if (userId.isEmpty || userId == "null") {
-      debugPrint('Socket Connected >>>>>>>>>>>> FALSE <<<<<<<<<<<<');
+  Stream<NotificationModel> get notifications => _notifications.stream;
+  Stream<Map<String, dynamic>> get supportMessages => _supportMessages.stream;
+  Stream<String> get supportStatus => _supportStatus.stream;
+
+  void connect() {
+    final token = SharePrefsHelper.getToken();
+    if (token == null || token.isEmpty) return;
+    if (_socket != null) {
+      if (!(_socket!.connected)) _socket!.connect();
       return;
     }
-    // socket = io.io(
-    //   ApiUrl.socketUrl(userID: userId),
-    //   io.OptionBuilder().setTransports(['websocket']).build(),
-    // );
 
-    debugPrint(
-      '$userId=============> Socket initialization, connected: ${socket.connected}',
+    _socket = io.io(
+      ApiUrl.mainDomain,
+      io.OptionBuilder()
+          .setTransports(['websocket'])
+          .setAuth({'token': token})
+          .enableReconnection()
+          .disableAutoConnect()
+          .build(),
     );
 
-    // Listen for socket connection
-    socket.onConnect((_) {
-      debugPrint(
-        '==============>>>>>>> Socket Connected ${socket.connected} ===============<<<<<<<',
-      );
-    });
+    _socket!
+      ..onConnect((_) {
+        connected.value = true;
+        debugPrint('🔌 Socket connected');
+      })
+      ..onDisconnect((_) {
+        connected.value = false;
+        debugPrint('🔌 Socket disconnected');
+      })
+      ..onConnectError((e) async {
+        debugPrint('🔌 Socket connect_error: $e');
+        if (e.toString().contains('Unauthorized')) {
+          final ok = await ApiClient.refreshAccessToken();
+          if (ok) reconnect();
+        }
+      })
+      ..on('notification', (data) {
+        try {
+          final n = NotificationModel.fromJson(J.map(data));
+          unreadCount.value = unreadCount.value + 1;
+          _notifications.add(n);
+        } catch (_) {}
+      })
+      ..on('notification-count', (data) {
+        unreadCount.value = J.integer(J.map(data)['unreadCount']) ?? 0;
+      })
+      ..on('support-message', (data) => _supportMessages.add(J.map(data)))
+      ..on('support-status', (data) => _supportStatus.add(J.s(J.map(data)['status'])));
 
-    // Listen for unauthorized events
-    socket.on('unauthorized', (dynamic data) {
-      debugPrint('Unauthorized');
-    });
-
-    // Listen for errors
-    socket.onError((dynamic error) {
-      debugPrint('Socket error: $error');
-    });
-
-    // Listen for disconnection
-    socket.onDisconnect((dynamic data) {
-      debugPrint('>>>>>>>>>> Socket instance disconnected <<<<<<<<<<<<$data');
-    });
+    _socket!.connect();
+    refreshUnreadCount();
   }
 
-  // Static instance of the class
-  static final SocketApi _socketApi = SocketApi._internal();
+  void reconnect() {
+    disconnect();
+    connect();
+  }
+
+  void disconnect() {
+    _socket?.dispose();
+    _socket = null;
+    connected.value = false;
+    unreadCount.value = 0;
+  }
+
+  Future<void> refreshUnreadCount() async {
+    final res = await ApiClient().get(url: ApiUrl.unreadCount);
+    if (res.isOk) unreadCount.value = J.integer(J.map(res.data)['unreadCount']) ?? 0;
+  }
+
+  @override
+  void onClose() {
+    disconnect();
+    _notifications.close();
+    _supportMessages.close();
+    _supportStatus.close();
+    super.onClose();
+  }
+}
+
+/// Kept for older imports.
+class SocketApi {
+  static void init() => RealtimeService.to.connect();
 }

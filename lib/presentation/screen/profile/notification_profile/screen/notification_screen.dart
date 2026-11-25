@@ -1,170 +1,130 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:get/get_core/src/get_main.dart';
-import 'package:get/get_instance/src/extension_instance.dart';
-import 'package:get/get_state_manager/src/rx_flutter/rx_obx_widget.dart';
-import 'package:get/get_utils/src/extensions/internacionalization.dart';
-import 'package:healthvault/presentation/widget/custom_appbar.dart';
-import 'package:healthvault/utils/app_text_style/app_text_style.dart';
+import 'package:get/get.dart';
 
-import '../../../../../core/responsive_layout/dimensions/dimensions.dart';
+import '../../../../../core/routes/route_path.dart';
 import '../../../../../utils/app_colors/app_colors.dart';
-import '../../../../../utils/assets_image/app_images.dart';
+import '../../../../../utils/app_text_style/app_text_style.dart';
 import '../../../../../utils/static_strings/static_strings.dart';
+import '../../../../widget/custom_appbar.dart';
+import '../../../../widget/hv_ui.dart';
 import '../controller/notification_controller.dart';
-import '../widget/notification_item_widget.dart';
 
-class NotificationScreen extends StatefulWidget {
+class NotificationScreen extends StatelessWidget {
   const NotificationScreen({super.key});
 
-  @override
-  State<NotificationScreen> createState() => _NotificationScreenState();
-}
-
-class _NotificationScreenState extends State<NotificationScreen> {
-  final NotificationController controller =
-  Get.put(NotificationController());
-
-  final ScrollController scrollController = ScrollController();
-
-  @override
-  void initState() {
-    super.initState();
-
-    scrollController.addListener(() {
-      if (scrollController.position.pixels ==
-          scrollController.position.maxScrollExtent) {
-        controller.loadMoreNotifications();
-      }
-    });
+  static IconData iconFor(String type) {
+    switch (type) {
+      case 'APPOINTMENT':
+        return Icons.event_note;
+      case 'MEDICATION':
+        return Icons.medication;
+      case 'INSURANCE':
+        return Icons.shield_outlined;
+      case 'DOCUMENT':
+        return Icons.description_outlined;
+      case 'SUPPORT':
+        return Icons.support_agent;
+      case 'SOS':
+        return Icons.sos;
+      case 'PROVIDER':
+        return Icons.verified_outlined;
+      default:
+        return Icons.campaign_outlined;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final c = Get.put(NotificationController());
     return Scaffold(
       backgroundColor: AppColors.whiteColor,
-      appBar: CommonAppBar(title: AppStrings.notification.tr),
-
-      body: Obx(() {
-        return ListView(
-          controller: scrollController,
-          padding: EdgeInsets.all(10),
-          children: [
-
-            ...[
-              /// ================= Header Card =================
-              Container(
-                height: Dimensions.h(72),
-                padding: EdgeInsets.symmetric(horizontal: Dimensions.w(12)),
-                decoration: BoxDecoration(
-                  color: AppColors.whiteColor,
-                  borderRadius: BorderRadius.circular(Dimensions.r(10)),
-                  border: Border.all(
-                    color: AppColors.primaryColor,
-                    width: Dimensions.w(1),
-                  ),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(Dimensions.r(6)),
-                      child: Image.asset(
-                        AppImages.appLogo,
-                        width: Dimensions.w(100),
-                        height: Dimensions.w(30),
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    SizedBox(width: Dimensions.w(10)),
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        RichText(
-                          text: TextSpan(
-                            style: AppTextStyles.body.copyWith(
-                              fontSize: Dimensions.f(12),
+      appBar: CommonAppBar(title: AppStrings.notification.tr, actions: [
+        IconButton(
+          tooltip: 'Mark all as read'.tr,
+          onPressed: c.markAllRead,
+          icon: const Icon(Icons.done_all, color: AppColors.primaryColor),
+        ),
+        IconButton(
+          tooltip: 'Settings'.tr,
+          onPressed: () => Get.toNamed(RoutePath.notificationSettings),
+          icon: const Icon(Icons.tune, color: AppColors.primaryColor),
+        ),
+      ]),
+      body: Column(children: [
+        Obx(() => ChoiceBar(
+              values: ['', 'UNREAD', ...NotificationController.types],
+              labels: ['All'.tr, 'Unread'.tr, ...NotificationController.types.map((t) => Fmt.enumLabel(t).tr)],
+              selected: c.unreadOnly.value ? 'UNREAD' : c.type.value,
+              onSelected: (v) {
+                if (v == 'UNREAD') {
+                  c.type.value = '';
+                  c.setUnreadOnly(true);
+                } else {
+                  c.unreadOnly.value = false;
+                  c.setType(v);
+                }
+              },
+            )),
+        Expanded(
+          child: Obx(() => NotificationListener<ScrollNotification>(
+                onNotification: (n) {
+                  if (n.metrics.pixels > n.metrics.maxScrollExtent - 200) c.loadMore();
+                  return false;
+                },
+                child: AsyncList(
+                  loading: c.isLoading.value,
+                  error: c.error.value,
+                  isEmpty: c.items.isEmpty,
+                  onRefresh: c.fetch,
+                  empty: EmptyView(icon: Icons.notifications_none, title: 'No notifications'.tr),
+                  child: ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: c.items.length,
+                    itemBuilder: (_, i) {
+                      final n = c.items[i];
+                      return Dismissible(
+                        key: ValueKey(n.id),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          color: AppColors.emergencyColor,
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 20),
+                          child: const Icon(Icons.delete, color: Colors.white),
+                        ),
+                        onDismissed: (_) => c.remove(n),
+                        child: Material(
+                          color: n.isRead ? Colors.white : AppColors.bottomNavigationColor,
+                          child: ListTile(
+                            onTap: () => c.open(n),
+                            leading: CircleAvatar(
+                              backgroundColor: AppColors.primaryColor.withValues(alpha: 0.12),
+                              child: Icon(iconFor(n.type), color: n.type == 'SOS' ? AppColors.emergencyColor : AppColors.primaryColor),
                             ),
-                            children: [
-                              TextSpan(text: AppStrings.welcomeBack.tr),
-                              TextSpan(
-                                text: AppStrings.appName,
-                                style: AppTextStyles.body.copyWith(
-                                  fontSize: Dimensions.f(12),
-                                  color: AppColors.primaryColor,
-                                  fontWeight: FontWeight.w600,
+                            title: Text(n.title,
+                                style: AppTextStyles.body.copyWith(fontWeight: n.isRead ? FontWeight.w400 : FontWeight.w700)),
+                            subtitle: Text(n.message,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTextStyles.body.copyWith(fontSize: 12, color: AppColors.hintColor)),
+                            trailing: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                              Text(Fmt.ago(n.createdAt), style: AppTextStyles.body.copyWith(fontSize: 11, color: AppColors.hintColor)),
+                              if (!n.isRead)
+                                Container(
+                                  margin: const EdgeInsets.only(top: 6),
+                                  width: 8,
+                                  height: 8,
+                                  decoration: const BoxDecoration(color: AppColors.primaryColor, shape: BoxShape.circle),
                                 ),
-                              ),
-                            ],
+                            ]),
                           ),
                         ),
-                        SizedBox(height: Dimensions.h(4)),
-                        Text(
-                          'Fri, 12 AM',
-                          style: AppTextStyles.body.copyWith(
-                            fontSize: Dimensions.f(11),
-                            color: AppColors.greyColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              SizedBox(height: Dimensions.h(16)),
-
-              /// ================= Notifications or Empty =================
-              if (controller.notificationList.isEmpty)
-                if (controller.isLoading.value)
-                  const Center(
-                    child: CircularProgressIndicator(color: AppColors.primaryColor),
-                  )
-                else
-                  Center(
-                    child: Padding(
-                      padding: EdgeInsets.only(top: Dimensions.h(50)),
-                      child: Text(
-                        "No notification found",
-                        style: AppTextStyles.body.copyWith(
-                          fontSize: Dimensions.f(14),
-                          color: AppColors.greyColor,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  )
-              else
-                ...List.generate(
-                  controller.notificationList.length,
-                      (index) {
-                    final item = controller.notificationList[index];
-                    return notificationItem(
-                      id: item.sId ?? "",
-                      title: item.title ?? "",
-                      message: item.message ?? "",
-                      onDelete: () {
-                        controller.deleteNotification(item.sId ?? "");
-                      },
-                    );
-                  },
-                ),
-
-              /// ================= Bottom Loader =================
-              if (controller.hasMore.value)
-                Padding(
-                  padding: EdgeInsets.all(Dimensions.h(16)),
-                  child: const Center(
-                    child: CircularProgressIndicator(color: AppColors.primaryColor),
+                      );
+                    },
                   ),
                 ),
-            ],
-
-          ],
-        );
-      }),
+              )),
+        ),
+      ]),
     );
   }
 }
-

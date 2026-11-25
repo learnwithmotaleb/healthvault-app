@@ -31,7 +31,7 @@ class _SplashScreenState extends State<SplashScreen> {
     String nextRoute;
 
     if (token == null || token.isEmpty) {
-      nextRoute = RoutePath.onboard; // no token → go to login
+      nextRoute = SharePrefsHelper.getOnboardSeen() ? RoutePath.select : RoutePath.onboard;
     } else {
       if (role == 'NORMALUSER') {
         nextRoute = RoutePath.bottomNav;

@@ -1,220 +1,114 @@
 import 'package:get/get.dart';
-import '../../../../../service/api_service.dart';
-import '../../../../../service/api_url.dart';
-import '../../../../helper/local_db/local_db.dart';
-import '../../../../helper/local_db/shareprefs_helper.dart';
-import '../../health_and_wellness_article/model/article_model.dart';
-import '../../profile/profile/model/user_profile_model.dart';
-import '../model/get_all_provider.dart' hide ProviderType;
-import '../model/get_all_provider_type_model.dart';
 
+import '../../../../data/models/app_models.dart';
+import '../../../../data/models/json.dart';
+import '../../../../data/models/user_models.dart';
+import '../../../../helper/tost_message/show_snackbar.dart';
+import '../../../../service/api_service.dart';
+import '../../../../service/api_url.dart';
+import '../../../../service/socket_service.dart';
+
+/// Patient home – GET /normal-User/home + directory/articles.
 class HomeController extends GetxController {
+  final _api = ApiClient();
 
-  var isLoading = true.obs;
+  final isLoading = true.obs;
+  final error = RxnString();
 
-  var profileData = Rx<ProfileData?>(null);
-  var jwtPayload = Rx<JwtPayload?>(null);
+  final fullName = ''.obs;
+  final profileImage = RxnString();
+  final membershipId = RxnString();
+  final bloodGroup = RxnString();
 
-  var providerTypes = <ProviderType>[].obs;
-  var articles = <Article>[].obs;
-  var allProviders = <Provider>[].obs;
+  final todayDoses = <DoseModel>[].obs;
+  final remaining = 0.obs;
+  final taken = 0.obs;
+  final upcoming = <AppointmentModel>[].obs;
+  final latestLog = Rxn<HealthLogModel>();
+  final expiringInsurances = <InsuranceModel>[].obs;
+  final activeSosId = RxnString();
 
-  final ApiClient apiClient = ApiClient();
+  final providerTypes = <ProviderTypeModel>[].obs;
+  final providers = <ProviderModel>[].obs;
+  final articles = <ArticleModel>[].obs;
+  final _recording = <String>{}.obs;
 
-  // ✅ Role from SharedPreferences
-  String get savedRole => SharePrefsHelper.getRole()?.toUpperCase() ?? "";
-  bool get isProvider => savedRole == "PROVIDER";
-  bool get isNormalUser => savedRole == "NORMALUSER";
-
-  // ✅ Profile helper getters
-  String get fullName => profileData.value?.fullName ?? "";
-  String get role => savedRole;
-  String get fullImageUrl {
-    final raw = profileData.value?.profileImage ?? "";
-    return raw.isNotEmpty ? ApiUrl.buildImageUrl(raw) : "";
-  }
+  String get fullImageUrl => ApiUrl.fileUrl(profileImage.value);
 
   @override
   void onInit() {
     super.onInit();
-    _printRoleInfo(); // ✅ print role on init
-    fetchProviderTypes();
-    fetchUserProfile();
-    fetchArticles();
-    fetchAllProviders();
+    loadAll();
   }
 
-  // ✅ Print role and IDs from local storage
-  void _printRoleInfo() {
-    print("============================");
-    print("👤 Role     : $savedRole");
-    print("🔑 Token    : ${SharePrefsHelper.getToken()}");
-    print("🆔 User ID  : ${SharePrefsHelper.getUserId()}");
-    print("📋 Profile ID: ${SharePrefsHelper.getProfileId()}");
-    print("============================");
+  Future<void> loadAll() async {
+    isLoading.value = true;
+    await Future.wait([loadDashboard(), _loadTypes(), _loadProviders(), _loadArticles()]);
+    isLoading.value = false;
+    RealtimeService.to.refreshUnreadCount();
   }
 
-  Future<void> fetchAllProviders() async {
-    try {
-      isLoading.value = true;
-
-      final res = await apiClient.get(
-        url: ApiUrl.getAllProvider,
-        isToken: true,
-      );
-
-      if (res.statusCode == 200) {
-        final model = GetAllProvidersModel.fromJson(res.body);
-        if (model.success == true && model.data != null) {
-          allProviders.assignAll(model.data!.data ?? []);
-        } else {
-          Get.snackbar('Info', model.message ?? 'No providers found');
-        }
-      } else {
-        Get.snackbar('Error', res.statusText ?? 'Failed to load providers');
-      }
-    } catch (e) {
-      Get.snackbar('Error', 'Exception: $e');
-    } finally {
-      isLoading.value = false;
+  Future<void> loadDashboard() async {
+    final res = await _api.get(url: ApiUrl.patientHome);
+    if (!res.isOk) {
+      error.value = res.message;
+      return;
     }
+    error.value = null;
+    final d = J.map(res.data);
+    final profile = J.map(d['profile']);
+    fullName.value = J.s(profile['fullName']);
+    profileImage.value = J.str(profile['profile_image']);
+    membershipId.value = J.str(profile['membershipId']) ?? J.str(J.map(d['healthCard'])['membershipId']);
+    bloodGroup.value = J.str(profile['bloodGroup']);
+
+    final r = J.map(d['reminders']);
+    todayDoses.assignAll(J.list(r['today'], DoseModel.fromJson));
+    remaining.value = J.integer(r['remaining']) ?? 0;
+    taken.value = J.integer(r['taken']) ?? 0;
+
+    upcoming.assignAll(J.list(d['upcomingAppointments'], AppointmentModel.fromJson));
+    latestLog.value = d['latestHealthLog'] is Map ? HealthLogModel.fromJson(J.map(d['latestHealthLog'])) : null;
+    expiringInsurances.assignAll(J.list(d['expiringInsurances'], InsuranceModel.fromJson));
+    activeSosId.value = d['activeSos'] is Map ? J.str(d['activeSos']['_id']) : null;
+    final unread = J.integer(d['unreadNotifications']);
+    if (unread != null) RealtimeService.to.unreadCount.value = unread;
   }
 
-  Future<void> fetchProviderTypes() async {
-    try {
-      isLoading.value = true;
-
-      final res = await apiClient.get(
-        url: ApiUrl.providerType,
-        isToken: true,
-      );
-
-      if (res.statusCode == 200) {
-        final model = ProviderTypeModel.fromJson(res.body);
-        if (model.success == true) {
-          providerTypes.assignAll(model.data);
-        } else {
-          Get.snackbar('Info', model.message);
-        }
-      } else {
-        Get.snackbar('Error', res.statusText ?? 'Failed to load provider types');
-      }
-    } catch (e) {
-      Get.snackbar('Error', e.toString());
-    } finally {
-      isLoading.value = false;
-    }
+  Future<void> _loadTypes() async {
+    final res = await _api.get(url: ApiUrl.providerType, isToken: false);
+    if (res.isOk) providerTypes.assignAll(J.list(res.data, ProviderTypeModel.fromJson).where((t) => t.isActive));
   }
 
-  Future<void> fetchUserProfile() async {
-    try {
-      isLoading.value = true;
-
-      final url = isProvider
-          ? ApiUrl.getProviderProfile
-          : ApiUrl.getUserProfile;
-
-      final response = await apiClient.get(url: url, isToken: true);
-
-      print("📦 Raw Response: ${response.body}");
-
-      if (response.statusCode == 200) {
-        final body = response.body;
-
-        if (body["success"] == true && body["data"] != null) {
-          final data = body["data"];
-
-          if (data is List && data.isNotEmpty) {
-            final userMap = data[0] as Map<String, dynamic>;
-
-            if (isNormalUser) {
-              // ✅ Merge top-level fields + normalUserDetails[0]
-              final details = (userMap["normalUserDetails"] as List?)?.isNotEmpty == true
-                  ? userMap["normalUserDetails"][0] as Map<String, dynamic>
-                  : <String, dynamic>{};
-
-              // ✅ Combine both maps — details override top-level
-              final merged = {
-                ...userMap,
-                ...details,
-                "profile_image": details["profile_image"] ?? "",
-              };
-
-              profileData.value = ProfileData.fromJson(merged);
-
-            } else if (isProvider) {
-              // ✅ Provider — same pattern with providerDetails if needed
-              final details = (userMap["providerDetails"] as List?)?.isNotEmpty == true
-                  ? userMap["providerDetails"][0] as Map<String, dynamic>
-                  : <String, dynamic>{};
-
-              final merged = {
-                ...userMap,
-                ...details,
-                "profile_image": details["profile_image"] ?? "",
-              };
-
-              profileData.value = ProfileData.fromJson(merged);
-            }
-
-            _printProfileInfo();
-          }
-        } else {
-          Get.snackbar('Info', body["message"] ?? 'No user data found');
-        }
-      } else {
-        Get.snackbar('Error', response.statusText ?? 'Something went wrong');
-      }
-    } catch (e) {
-      print("❌ fetchUserProfile error: $e");
-      Get.snackbar('Error', 'Failed to fetch profile: $e');
-    } finally {
-      isLoading.value = false;
-    }
+  Future<void> _loadProviders() async {
+    final res = await _api.get(url: ApiUrl.getAllProvider, query: {"page": 1, "limit": 5}, isToken: false);
+    if (res.isOk) providers.assignAll(Paged.parse(res.data, ProviderModel.fromJson).items);
   }
 
-  // ✅ Print profile details based on role
-  void _printProfileInfo() {
-    final p = profileData.value;
-    print("============================");
-    print("📸 Name     : ${p?.fullName}");
-    print("🖼  Image    : $fullImageUrl");
-    print("📍 Address  : ${p?.address}");
+  Future<void> _loadArticles() async {
+    final res = await _api.get(url: ApiUrl.getAllArticle, query: {"page": 1, "limit": 10}, isToken: false);
+    if (res.isOk) articles.assignAll(Paged.parse(res.data, ArticleModel.fromJson).items);
+  }
 
-    if (isProvider) {
-      print("--- 🏥 PROVIDER INFO ---");
-      print("🔬 Specialization : ${p?.specialization}");
-      print("🏷  Provider Type  : ${p?.providerTypeId?.label}");
-      print("📜 License        : ${p?.medicalLicenseNumber}");
-      print("📅 Experience     : ${p?.yearsOfExperience} years");
-      print("🗣  Languages      : ${p?.languages?.join(', ')}");
-      print("✅ Verified       : ${p?.isVerified}");
+  bool isRecording(DoseModel d) => _recording.contains('${d.reminderId}${d.scheduledAt}');
+
+  /// POST /reminder/:id/intake
+  Future<void> recordDose(DoseModel d, String status) async {
+    final key = '${d.reminderId}${d.scheduledAt}';
+    _recording.add(key);
+    final res = await _api.post(
+      url: ApiUrl.recordIntake(d.reminderId),
+      body: {"scheduledAt": d.scheduledAt, "status": status},
+    );
+    _recording.remove(key);
+    if (res.isOk) {
+      final i = todayDoses.indexWhere((e) => e.reminderId == d.reminderId && e.scheduledAt == d.scheduledAt);
+      if (i >= 0) todayDoses[i] = d.copyWith(status: status);
+      if (status == 'TAKEN') taken.value++;
+      if (remaining.value > 0) remaining.value--;
+      AppSnackBar.success(status == 'TAKEN' ? "Marked as taken" : "Marked as skipped");
     } else {
-      print("--- 👤 USER INFO ---");
-      print("🩸 Blood Group    : ${p?.bloodGroup}");
-      print("⚧  Gender         : ${p?.gender}");
-      print("🎂 Date of Birth  : ${p?.dateOfBirth}");
-      print("🪪  Member ID      : ${p?.membershipId}");
-      print("🆘 Emergency      : ${p?.emergencyContact}");
-    }
-    print("============================");
-  }
-
-  Future<void> fetchArticles() async {
-    try {
-      final res = await apiClient.get(
-        url: "${ApiUrl.getAllArticle}?page=1&limit=10",
-        isToken: true,
-      );
-
-      if (res.statusCode == 200) {
-        final model = GetAllArticleModel.fromJson(res.body);
-        articles.assignAll(model.data?.articles ?? []);
-      } else {
-        Get.snackbar('Error', res.statusText ?? 'Failed to load articles');
-      }
-    } catch (e) {
-      Get.snackbar('Error', 'Exception: $e');
+      AppSnackBar.fail(res.message);
     }
   }
 }

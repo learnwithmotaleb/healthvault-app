@@ -1,173 +1,109 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:get/get_core/src/get_main.dart';
-import 'package:get/get_instance/src/extension_instance.dart';
-import 'package:get/get_state_manager/src/rx_flutter/rx_obx_widget.dart';
-import 'package:get/get_utils/src/extensions/internacionalization.dart';
-import 'package:healthvault/helper/date_time_converter/date_time_converter.dart';
-import 'package:shimmer/shimmer.dart';
+import 'package:get/get.dart';
 
+import '../../../../../data/models/user_models.dart';
 import '../../../../../utils/app_colors/app_colors.dart';
-import '../../../../../utils/static_strings/static_strings.dart';
+import '../../../../../utils/app_text_style/app_text_style.dart';
 import '../../../../widget/custom_appbar.dart';
+import '../../../../widget/hv_ui.dart';
 import '../controller/provider_service_controller.dart';
-import '../widget/service_add__widget.dart';
-import '../widget/service_edit_widget.dart';
-import '../widget/services_card.dart';
 
-class ProviderServiceScreen extends StatefulWidget {
+class ProviderServiceScreen extends StatelessWidget {
   const ProviderServiceScreen({super.key});
 
-  @override
-  State<ProviderServiceScreen> createState() => _ProviderServiceScreenState();
-}
-
-class _ProviderServiceScreenState extends State<ProviderServiceScreen> {
-  final ProviderServiceController controller = Get.put(ProviderServiceController());
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.whiteColor,
-      appBar: CommonAppBar(title: AppStrings.service.tr),
-
-      body: Obx(() {
-        // ✅ Show shimmer while loading
-        if (controller.isLoading.value) {
-          return _buildShimmerList();
-        }
-
-        if (controller.services.isEmpty) {
-          return const Center(child: Text("No services found"));
-        }
-
-        return RefreshIndicator(
-          onRefresh: () => controller.refreshServices(),
-          child: ListView.builder(
-            padding: const EdgeInsets.all(12),
-            itemCount: controller.services.length,
-            itemBuilder: (context, index) {
-              final service = controller.services[index];
-
-              return ServiceCardWidget(
-                title: service.title ?? "",
-                subtitle: "Price: \$${service.price ?? 0}",
-                address: "Provider Type: ${service.providerType ?? ""}",
-                description: "Date: ${DateTimeHelper.dateTime(service.createdAt.toString())}",
-                onEdit: () {
-                  showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    backgroundColor: Colors.transparent,
-                    builder: (_) => EditItemBottomSheet(
-                      title: service.title ?? "",
-                      serviceId: service.sId.toString(),
-                      price: service.price!.toInt(),
-                    ),
-                  );
-                },
-                onDelete: () async {
-                  final confirm = await showDialog(
-                    context: context,
-                    builder: (_) => AlertDialog(
-                      title: const Text("Confirm Delete"),
-                      content: const Text("Are you sure you want to delete this service?"),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context, false),
-                          child: const Text("Cancel"),
-                        ),
-                        TextButton(
-                          onPressed: () => Navigator.pop(context, true),
-                          child: const Text("Delete"),
-                        ),
-                      ],
-                    ),
-                  );
-                  if (confirm == true) {
-                    controller.deleteService(service.sId!);
-                  }
-                },
-              );
-            },
+  Future<void> _edit(ProviderServiceController c, [ServiceModel? s]) async {
+    final title = TextEditingController(text: s?.title);
+    final price = TextEditingController(text: s == null ? '' : s.price.toString());
+    final key = GlobalKey<FormState>();
+    await Get.bottomSheet(
+      Builder(
+        builder: (context) => Container(
+          padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).viewInsets.bottom),
+          decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+          child: Form(
+            key: key,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(s == null ? 'Add service'.tr : 'Edit service'.tr, style: AppTextStyles.title.copyWith(fontSize: 16)),
+              const SizedBox(height: 12),
+              LabeledField(label: 'Title'.tr, controller: title, hint: 'ECG test', validator: V.required),
+              LabeledField(
+                label: 'Price (€)'.tr,
+                controller: price,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                validator: V.numberIn(0, 100000, optional: false),
+              ),
+              Obx(() => PrimaryButton(
+                    label: 'Save'.tr,
+                    loading: c.isSaving.value,
+                    onPressed: () async {
+                      if (!(key.currentState?.validate() ?? false)) return;
+                      final p = num.parse(price.text.trim().replaceAll(',', '.'));
+                      final ok = s == null ? await c.create(title.text.trim(), p) : await c.updateService(s, title.text.trim(), p);
+                      if (ok) Get.back();
+                    },
+                  )),
+            ]),
           ),
-        );
-      }),
-
-      floatingActionButton: FloatingActionButton(
-        child: const Icon(Icons.add),
-        onPressed: () {
-          if (controller.providerType.value.isEmpty) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Provider type not loaded yet. Please wait.")),
-            );
-            return;
-          }
-
-          showModalBottomSheet(
-            context: context,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            builder: (_) => AddItemBottomSheet(
-              providerType: controller.providerType.value,
-            ),
-          );
-        },
+        ),
       ),
+      isScrollControlled: true,
     );
   }
 
-  // ✅ Shimmer placeholder list — matches ServiceCardWidget shape
-  Widget _buildShimmerList() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: 6, // number of skeleton cards
-      itemBuilder: (context, index) {
-        return Shimmer.fromColors(
-          baseColor: Colors.grey.shade300,
-          highlightColor: Colors.grey.shade100,
-          child: Container(
-            height: 110,
-            margin: const EdgeInsets.symmetric(vertical: 8),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ✅ Text placeholder lines
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      // Title
-                      Container(height: 14, width: 160, color: Colors.white),
-                      // Subtitle
-                      Container(height: 12, width: 100, color: Colors.white),
-                      // Address
-                      Container(height: 12, width: 130, color: Colors.white),
-                      // Description
-                      Container(height: 12, width: 180, color: Colors.white),
-                    ],
-                  ),
-                ),
-                // ✅ Edit/Delete icon placeholders
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(height: 20, width: 20, color: Colors.white),
-                    const SizedBox(height: 10),
-                    Container(height: 20, width: 20, color: Colors.white),
-                  ],
-                ),
-              ],
-            ),
-          ),
+  @override
+  Widget build(BuildContext context) {
+    final c = Get.put(ProviderServiceController());
+    return Scaffold(
+      backgroundColor: AppColors.whiteColor,
+      appBar: CommonAppBar(title: 'My services'.tr),
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: AppColors.primaryColor,
+        onPressed: () => _edit(c),
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: Text('Add service'.tr, style: const TextStyle(color: Colors.white)),
+      ),
+      body: Obx(() {
+        if (c.isLoading.value && c.mine.isEmpty && c.catalogue.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        return RefreshIndicator(
+          onRefresh: c.fetch,
+          child: ListView(padding: const EdgeInsets.fromLTRB(12, 0, 12, 90), children: [
+            SectionTitle('My own services'.tr),
+            if (c.mine.isEmpty)
+              Text('You have not created any services yet.'.tr, style: AppTextStyles.body.copyWith(color: AppColors.hintColor)),
+            ...c.mine.map((s) => HVCardBox(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  child: Row(children: [
+                    const Icon(Icons.medical_services_outlined, color: AppColors.primaryColor),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(s.title, style: AppTextStyles.body)),
+                    Text(s.priceLabel, style: AppTextStyles.body.copyWith(color: AppColors.primaryColor, fontWeight: FontWeight.w600)),
+                    IconButton(onPressed: () => _edit(c, s), icon: const Icon(Icons.edit_outlined, size: 20)),
+                    IconButton(
+                      onPressed: () => c.delete(s),
+                      icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.emergencyColor),
+                    ),
+                  ]),
+                )),
+            if (c.catalogue.isNotEmpty) ...[
+              SectionTitle('Catalogue services'.tr),
+              Text('Tick the standard services you offer.'.tr, style: AppTextStyles.body.copyWith(fontSize: 12, color: AppColors.hintColor)),
+              const SizedBox(height: 6),
+              ...c.catalogue.map((s) => HVCardBox(
+                    padding: EdgeInsets.zero,
+                    child: CheckboxListTile(
+                      activeColor: AppColors.primaryColor,
+                      value: c.profileServiceIds.contains(s.id),
+                      onChanged: c.isSaving.value ? null : (_) => c.toggleCatalogue(s),
+                      title: Text(s.title, style: AppTextStyles.body),
+                      secondary: Text(s.priceLabel, style: AppTextStyles.body.copyWith(color: AppColors.primaryColor)),
+                    ),
+                  )),
+            ],
+          ]),
         );
-      },
+      }),
     );
   }
 }

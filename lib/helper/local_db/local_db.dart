@@ -120,8 +120,46 @@ class SharePrefsHelper {
 
 
 
-  // ----------------- Clear All -----------------
-  static Future<void> clearAll() async {
-    await _prefs?.clear();
+  // ----------------- Cached user (getMe / login user) -----------------
+  static Future<void> saveUserJson(String json) async {
+    await _prefs?.setString(SharePrefsKeys.userJson, json);
   }
+
+  static String? getUserJson() => _prefs?.getString(SharePrefsKeys.userJson);
+
+  // ----------------- Emergency info (offline cache) -----------------
+  static Future<void> saveEmergencyJson(String json) async {
+    await _prefs?.setString(SharePrefsKeys.emergencyJson, json);
+  }
+
+  static String? getEmergencyJson() => _prefs?.getString(SharePrefsKeys.emergencyJson);
+
+  // ----------------- Push device id (OneSignal) -----------------
+  static Future<void> savePlayerId(String id) async {
+    await _prefs?.setString(SharePrefsKeys.playerId, id);
+  }
+
+  static String? getPlayerId() => _prefs?.getString(SharePrefsKeys.playerId);
+
+  // ----------------- Clear session only -----------------
+  /// Removes tokens and user data but keeps language, theme, onboarding
+  /// and the device push id.
+  static Future<void> clearSession() async {
+    for (final k in [
+      SharePrefsKeys.token,
+      SharePrefsKeys.refreshToken,
+      SharePrefsKeys.role,
+      SharePrefsKeys.userId,
+      SharePrefsKeys.profileId,
+      SharePrefsKeys.userJson,
+      SharePrefsKeys.emergencyJson,
+      'role',
+    ]) {
+      await _prefs?.remove(k);
+    }
+  }
+
+  // ----------------- Clear All -----------------
+  /// Kept for older callers – now only clears the session.
+  static Future<void> clearAll() => clearSession();
 }

@@ -51,25 +51,11 @@ class SignupController extends GetxController {
 
   /// Call this after signup or when you want to navigate
   void navigateBasedOnProvider(String role) {
-    final label = selectedProviderLabel.value.toLowerCase();
-
-    if (label.startsWith("do")) {
-      Get.toNamed(
-        RoutePath.doctorIdentification,
-        arguments: {
-          "providerLabel": label,
-          "role": role, // ⭐ SEND ROLE HERE
-        },
-      );
-    } else {
-      Get.toNamed(
-        RoutePath.pharmacyIdentification,
-        arguments: {
-          "providerLabel": label,
-          "role": role, // ⭐ SEND ROLE HERE
-        },
-      );
-    }
+    final key = (selectedProviderKey.value.isNotEmpty ? selectedProviderKey.value : selectedProviderLabel.value).toUpperCase();
+    Get.toNamed(
+      key == "DOCTOR" ? RoutePath.doctorIdentification : RoutePath.pharmacyIdentification,
+      arguments: {"providerLabel": key, "role": role},
+    );
   }
 
 

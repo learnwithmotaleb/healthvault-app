@@ -1,162 +1,103 @@
-import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:healthvault/service/api_url.dart';
+
+import '../../../../../data/models/json.dart';
+import '../../../../../data/models/user_models.dart';
 import '../../../../../helper/tost_message/show_snackbar.dart';
 import '../../../../../service/api_service.dart';
-import '../model/model.dart';
+import '../../../../../service/api_url.dart';
+import '../../../../../service/session_service.dart';
+import '../../../../widget/hv_ui.dart';
 
+/// Provider services: own services (CRUD) + catalogue services on the profile.
 class ProviderServiceController extends GetxController {
-
-  var title = TextEditingController();
-  var price = TextEditingController();
-
-  var providerType = ''.obs;
-  var isLoading = false.obs;
-
-  // ✅ Added for RefreshIndicator (pull-to-refresh)
-  var isRefreshing = false.obs;
-
-  var services = <Data>[].obs;
-
-  final ApiClient apiClient = ApiClient();
+  final _api = ApiClient();
+  final mine = <ServiceModel>[].obs;
+  final catalogue = <ServiceModel>[].obs;
+  final profileServiceIds = <String>{}.obs;
+  final isLoading = false.obs;
+  final isSaving = false.obs;
+  final error = RxnString();
 
   @override
   void onInit() {
     super.onInit();
-    fetchMyServices();
+    fetch();
   }
 
-  void fetchMyServices() async {
-    try {
-      isLoading.value = true;
-      await _loadServices();
-    } finally {
-      isLoading.value = false;
+  Future<void> fetch() async {
+    isLoading.value = true;
+    error.value = null;
+    final acc = await SessionService.refreshMe();
+    final p = acc?.profile;
+    profileServiceIds
+      ..clear()
+      ..addAll(p?.serviceIds.isNotEmpty == true ? p!.serviceIds : (p?.services.map((s) => s.id) ?? const <String>[]));
+
+    final res = await _api.get(url: ApiUrl.myCreateService);
+    if (res.isOk) {
+      mine.assignAll(Paged.parse(res.data, ServiceModel.fromJson).items);
+    } else {
+      error.value = res.message;
+    }
+    final key = p?.providerType?.key;
+    if (key != null && key.isNotEmpty) {
+      final cat = await _api.get(url: ApiUrl.adminCreateService(key), isToken: false);
+      if (cat.isOk) catalogue.assignAll(J.list(cat.data, ServiceModel.fromJson));
+    }
+    isLoading.value = false;
+  }
+
+  Future<bool> create(String title, num price) async {
+    isSaving.value = true;
+    final res = await _api.post(url: ApiUrl.createService, body: {"title": title, "price": price});
+    isSaving.value = false;
+    if (res.isOk) {
+      AppSnackBar.success("Service added");
+      fetch();
+      return true;
+    }
+    AppSnackBar.fail(res.message);
+    return false;
+  }
+
+  Future<bool> updateService(ServiceModel s, String title, num price) async {
+    isSaving.value = true;
+    final res = await _api.patch(url: ApiUrl.serviceUpdate(s.id), body: {"title": title, "price": price});
+    isSaving.value = false;
+    if (res.isOk) {
+      AppSnackBar.success("Service updated");
+      fetch();
+      return true;
+    }
+    AppSnackBar.fail(res.message);
+    return false;
+  }
+
+  Future<void> delete(ServiceModel s) async {
+    if (!await Dialogs.confirm(title: 'Delete service'.tr, message: '${'Delete'.tr} "${s.title}"?', destructive: true)) return;
+    final res = await _api.delete(url: ApiUrl.serviceDelete(s.id));
+    if (res.isOk) {
+      mine.removeWhere((e) => e.id == s.id);
+      AppSnackBar.success("Service deleted");
+    } else {
+      AppSnackBar.fail(res.message);
     }
   }
 
-  // ✅ Pull-to-refresh method — called by RefreshIndicator
-  Future<void> refreshServices() async {
-    try {
-      isRefreshing.value = true;
-      await _loadServices();
-    } finally {
-      isRefreshing.value = false;
-    }
-  }
-
-  // ✅ Shared core fetch logic used by both fetchMyServices & refreshServices
-  Future<void> _loadServices() async {
-    try {
-      final response = await apiClient.get(
-        url: ApiUrl.myCreateService,
-        isToken: true,
-      );
-
-      if (response.statusCode == 200) {
-        final model = MyServicesModel.fromJson(response.body);
-        if (model.success == true && model.data != null) {
-
-          services.value = model.data!
-              .where((service) => service.isDeleted == false)
-              .toList();
-
-          if (services.isNotEmpty) {
-            providerType.value = services.first.providerType ?? '';
-          }
-
-        } else {
-          services.clear();
-        }
-      } else {
-        services.clear();
-      }
-    } catch (e) {
-      print("Error fetching services: $e");
-      services.clear();
-    }
-  }
-
-  Future<void> createService({
-    required String title,
-    required int price,
-    required String providerType,
-  }) async {
-    try {
-      isLoading.value = true;
-
-      final response = await apiClient.post(
-        url: ApiUrl.createService,
-        body: {
-          "title": title.toString(),
-          "price": price.toInt(),
-          "providerType": providerType.toUpperCase(),
-        },
-        isToken: true,
-      );
-
-      // ✅ Handle both 200 and 201 (Created)
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        AppSnackBar.success("Service created successfully!");
-        await _loadServices();
-      } else {
-        // ✅ Show actual server error message if available
-        final message = response.body['message'] ?? "Failed to create service!";
-        AppSnackBar.fail(message);
-      }
-    } catch (e) {
-      AppSnackBar.fail("Error creating service: $e");
-    } finally {
-      isLoading.value = false;
-    }
-  }
-
-  Future<void> updateService({
-    required String serviceId,
-    required String title,
-    required int price,
-  }) async {
-    try {
-      isLoading.value = true;
-
-      final response = await apiClient.patch(
-        url: ApiUrl.serviceUpdate(serviceId),
-        body: {
-          "title": title,
-          "price": price,
-        },
-        isToken: true,
-      );
-
-      if (response.statusCode == 200) {
-        AppSnackBar.success("Service updated successfully!");
-        await _loadServices(); // ✅ refresh after update
-      } else {
-        AppSnackBar.fail("Failed to update service!");
-      }
-    } catch (e) {
-      AppSnackBar.fail("Error updating service: $e");
-    } finally {
-      isLoading.value = false;
-    }
-  }
-
-  Future<void> deleteService(String serviceId) async {
-    try {
-      final response = await apiClient.delete(
-        url: ApiUrl.serviceDelete(serviceId),
-        isToken: true,
-      );
-
-      if (response.statusCode == 200) {
-        AppSnackBar.success("Service deleted successfully!");
-        // ✅ Remove locally for instant UI update, no need to refetch
-        services.removeWhere((element) => element.sId == serviceId);
-      } else {
-        AppSnackBar.fail("Failed to delete service!");
-      }
-    } catch (e) {
-      AppSnackBar.fail("Error deleting service: $e");
+  /// Add/remove a catalogue service on the profile (PATCH /user/updateMe { serviceId }).
+  Future<void> toggleCatalogue(ServiceModel s) async {
+    final next = {...profileServiceIds};
+    next.contains(s.id) ? next.remove(s.id) : next.add(s.id);
+    isSaving.value = true;
+    final res = await _api.patch(url: ApiUrl.updateMyProfile, body: {"serviceId": next.toList()});
+    isSaving.value = false;
+    if (res.isOk) {
+      profileServiceIds
+        ..clear()
+        ..addAll(next);
+      SessionService.refreshMe();
+    } else {
+      AppSnackBar.fail(res.message);
     }
   }
 }

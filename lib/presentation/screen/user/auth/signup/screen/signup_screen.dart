@@ -11,6 +11,8 @@ import '../../../../../../utils/static_strings/static_strings.dart';
 
 import '../../../../../widget/hv_text_field.dart';
 import '../controller/signup_controller.dart';
+import '../signup_flow.dart';
+import '../../../../../widget/hv_ui.dart';
 
 class SignupScreen extends StatefulWidget {
   SignupScreen({super.key});
@@ -20,7 +22,16 @@ class SignupScreen extends StatefulWidget {
 }
 
 class _SignupScreenState extends State<SignupScreen> {
-  final controller = Get.put(SignupController());
+  final controller = Get.isRegistered<SignupController>()
+      ? Get.find<SignupController>()
+      : Get.put(SignupController(), permanent: true);
+
+  /// Leaving Sign Up (back to login) discards the whole sign-up flow.
+  @override
+  void dispose() {
+    SignupFlow.clear();
+    super.dispose();
+  }
 
 
 
@@ -127,7 +138,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           ),
                         ),
                       ),
-                      validator: AppValidators.required(),
+                      validator: V.email,
                     ),
                     const SizedBox(height: 16),
                     Text(
@@ -161,7 +172,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           ),
                         ),
                       ),
-                      validator: AppValidators.required(),
+                      validator: (v) => (v ?? '').trim().length < 6 ? 'Enter a valid phone number'.tr : null,
                     ),
                     const SizedBox(height: 16),
 
@@ -193,7 +204,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           ),
                         ),
                       ),
-                      validator: AppValidators.required(),
+                      validator: V.password,
                     ),
 
                      SizedBox(height: Dimensions.h(16)),
@@ -230,7 +241,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           ),
                         ),
                       ),
-                      validator: AppValidators.required(),
+                      validator: (v) => v != controller.passwordController.text ? 'Passwords do not match'.tr : null,
                     ),
                     SizedBox(height: Dimensions.h(16)),
 

@@ -1,3 +1,4 @@
+import 'package:get/get.dart';
 
 // lib/widgets/gender_field.dart
 import 'package:flutter/material.dart';
@@ -46,7 +47,7 @@ class GenderField extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              Text('Select Gender', style: AppTextStyles.title),
+              Text('Select Gender'.tr, style: AppTextStyles.title),
               const SizedBox(height: 8),
               Flexible(
                 child: ListView.separated(
@@ -57,11 +58,11 @@ class GenderField extends StatelessWidget {
                   itemBuilder: (ctx, index) {
                     final item = Genders.items[index];
                     final label = item['label']!;
-                    final isSelected = controller.text == label;
+                    final isSelected = controller.text == label.tr;
                     return ListTile(
                       dense: true,
                       contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                      title: Text(label, style: AppTextStyles.body),
+                      title: Text(label.tr, style: AppTextStyles.body),
                       trailing: isSelected
                           ? Icon(Icons.check, color: AppColors.primaryColor, size: 20)
                           : null,
@@ -77,7 +78,7 @@ class GenderField extends StatelessWidget {
     );
 
     if (selected != null) {
-      controller.text = selected['label']!;
+      controller.text = selected['label']!.tr;
       onSelected?.call(selected);
     }
   }

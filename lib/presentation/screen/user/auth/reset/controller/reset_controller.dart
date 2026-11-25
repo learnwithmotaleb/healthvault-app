@@ -7,6 +7,7 @@ import '../../../../../../helper/local_db/shareprefs_helper.dart';
 import '../../../../../../helper/tost_message/show_snackbar.dart';
 import '../../../../../../service/api_service.dart';
 import '../../../../../../service/api_url.dart';
+import '../../../../../../service/session_service.dart';
 
 class ResetController extends GetxController {
   /// Text controllers
@@ -30,58 +31,49 @@ class ResetController extends GetxController {
   void toggleNewPassword() => isNewPasswordHidden.value = !isNewPasswordHidden.value;
   void toggleConfirmPassword() => isConfirmPasswordHidden.value = !isConfirmPasswordHidden.value;
 
-  /// ====================== CHANGE PASSWORD ======================
+  /// Step 3 of forgot password → POST /auth/reset-password → tokens (logged in)
   Future<void> resetPassword() async {
     newPasswordFocus.unfocus();
     confirmPasswordFocus.unfocus();
-
     if (!(formKey.currentState?.validate() ?? false)) return;
 
-    final newPassword = newPasswordController.text.trim();
-    final confirmPassword = confirmPasswordController.text.trim();
-
-    if (newPassword != confirmPassword) {
-      AppSnackBar.fail(title: "Health Vault","New password and confirm password do not match");
+    final newPassword = newPasswordController.text;
+    if (newPassword.length < 8) {
+      AppSnackBar.fail("Password must be at least 8 characters", title: "Reset Password");
+      return;
+    }
+    if (newPassword != confirmPasswordController.text) {
+      AppSnackBar.fail("New password and confirm password do not match", title: "Health Vault");
       return;
     }
 
-    final token = await SharePrefsHelper.getToken();
-    print("Token being sent: $token");
+    String email = '';
+    final args = Get.arguments;
+    if (args is Map && args['email'] != null) email = args['email'].toString();
+    if (email.isEmpty && Get.isRegistered<ForgetController>()) email = Get.find<ForgetController>().email;
 
-    try {
-      isLoading.value = true;
+    isLoading.value = true;
+    final res = await ApiClient().post(
+      url: ApiUrl.resetPassword,
+      isToken: false,
+      body: {"email": email, "newPassword": newPassword},
+    );
 
-      final api = ApiClient();
-
-      final res = await api.post(
-        url: ApiUrl.resetPassword,
-        body: {
-          "email": Get.put(ForgetController()).emailController.text.trim(),
-          "newPassword": newPassword,
-        },
-        isBasic: false, // token auto-added
-        isToken: false
-      );
-
+    if (res.isOk && res.data is Map) {
+      await SessionService.saveAuth(Map<String, dynamic>.from(res.data));
+      await SessionService.refreshMe();
       isLoading.value = false;
-
-      if (res.statusCode == 200 && res.body["success"] == true) {
-
-       AppSnackBar.success(title: "Health Vault",res.body["message"] ?? "Password Reset successfully");
-       Get.toNamed(RoutePath.login);
-
-
-
+      AppSnackBar.success("Password reset successfully", title: "Health Vault");
+      if (SessionService.role.isNotEmpty) {
+        SessionService.goHome();
       } else {
-        AppSnackBar.fail(title: "Reset Password",res.body["message"] ?? "Failed to Reset password");
+        Get.offAllNamed(RoutePath.login);
       }
-    } catch (e) {
+    } else {
       isLoading.value = false;
-      AppSnackBar.fail(title: "Reset Password", "Error: $e");
+      AppSnackBar.fail(res.message, title: "Reset Password");
     }
   }
-
-
 
   @override
   void onClose() {

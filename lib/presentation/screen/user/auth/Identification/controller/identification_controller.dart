@@ -1,125 +1,108 @@
 import 'dart:io';
-import 'package:flutter/cupertino.dart';
+
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:image_picker/image_picker.dart';
+import '../../signup/signup_flow.dart';
+
 import '../../../../../../core/routes/route_path.dart';
-import '../../../../../../helper/role_controller/role_controller.dart';
+import '../../../../../../global/language/controller/language_controller.dart';
+import '../../../../../../helper/tost_message/show_snackbar.dart';
 import '../../../../../../service/api_service.dart';
 import '../../../../../../service/api_url.dart';
+import '../../../../../../service/session_service.dart';
+import '../../../../../widget/hv_ui.dart';
 import '../../registaration/controller/registration_controller.dart';
 import '../../signup/controller/signup_controller.dart';
 
+/// Final patient sign-up step → POST /user/register (multipart `data` + profile_image).
 class IdentificationController extends GetxController {
-  late final String email;
-  late final String phone;
-  late final String password;
+  final allergiesController = TextEditingController();
+  final chronicController = TextEditingController();
+  final contactNameController = TextEditingController();
+  final contactRelationController = TextEditingController();
 
-  @override
-  void onInit() {
-    super.onInit();
-
-    final signupCtrl = Get.find<SignupController>();
-
-    email = signupCtrl.email.value;
-    phone = signupCtrl.phone.value;
-    password = signupCtrl.password.value;
-
-    print("Email: $email");
-    print("Phone: $phone");
-    print("Password: $password");
-  }
-  /// Form key for validation
-  final formKey = GlobalKey<FormState>();
-
-  /// Loading state
   final isLoading = false.obs;
+  final acceptPrivacy = false.obs;
+  final Rx<File?> photo = Rx<File?>(null);
 
-  /// Image picker
-  final ImagePicker _picker = ImagePicker();
-
-  /// Observable photo
-  Rx<XFile?> photo = Rx<XFile?>(null);
-
-  /// Pick image from gallery
   Future<void> pickFromGallery() async {
-    try {
-      final result = await _picker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 500,
-        maxHeight: 500,
-        imageQuality: 85,
-      );
-      if (result != null) photo.value = result;
-    } catch (e) {
-      Get.snackbar("Error", "Failed to pick image: $e");
-    }
+    final f = await FilePick.chooseSource(allowPdf: false);
+    if (f.isNotEmpty) photo.value = f.first;
   }
 
-  /// Remove selected photo
   void removePhoto() => photo.value = null;
 
-  /// Registration API call
   Future<void> registration() async {
-    if (photo.value == null) {
-      Get.snackbar("Error", "Please upload a photo first");
+    if (!acceptPrivacy.value) {
+      AppSnackBar.fail("Please accept the privacy policy to continue");
       return;
     }
+    final signup = Get.find<SignupController>();
+    final reg = Get.find<RegistrationController>();
+
+    final dob = reg.dateOfBirthController.text.trim();
+    final gender = reg.selectedGender.value.isNotEmpty
+        ? reg.selectedGender.value
+        : reg.genderController.text.trim().toUpperCase();
+    final blood = reg.bloodGroupController.text.trim().toUpperCase();
+    final emergencyPhone = reg.emergencyContactController.text.trim();
+    final isEnglish = Get.isRegistered<LanguageController>() ? Get.find<LanguageController>().isEnglish.value : true;
+
+    final data = <String, dynamic>{
+      "role": "NORMALUSER",
+      "fullName": reg.fullNameController.text.trim().isNotEmpty ? reg.fullNameController.text.trim() : signup.name.value,
+      "email": signup.email.value.trim().toLowerCase(),
+      "password": signup.password.value,
+      "phone": signup.phone.value.trim(),
+      "dateOfBirth": dob.length >= 10 ? dob.substring(0, 10) : dob,
+      "gender": gender,
+      "bloodGroup": blood,
+      "acceptPrivacyPolicy": true,
+      "language": isEnglish ? "en" : "el",
+      if (reg.addressController.text.trim().isNotEmpty) "address": reg.addressController.text.trim(),
+      if (reg.membershipIDController.text.trim().isNotEmpty) "membershipId": reg.membershipIDController.text.trim(),
+      if (reg.identificationController.text.trim().isNotEmpty)
+        "identificationNumber": reg.identificationController.text.trim(),
+      if (emergencyPhone.isNotEmpty) ...{
+        "emergencyContact": emergencyPhone,
+        "emergencyContacts": [
+          {
+            "name": contactNameController.text.trim().isNotEmpty ? contactNameController.text.trim() : "Emergency contact",
+            "phone": emergencyPhone,
+            if (contactRelationController.text.trim().isNotEmpty) "relation": contactRelationController.text.trim(),
+          }
+        ],
+      },
+      if (splitCsv(allergiesController.text).isNotEmpty) "allergies": splitCsv(allergiesController.text),
+      if (splitCsv(chronicController.text).isNotEmpty) "chronicConditions": splitCsv(chronicController.text),
+      if (SessionService.playerId != null) "playerId": SessionService.playerId,
+    };
 
     isLoading.value = true;
+    final res = await ApiClient().sendForm(
+      url: ApiUrl.userRegister,
+      data: data,
+      isToken: false,
+      files: [if (photo.value != null) MultipartFileData(key: "profile_image", path: photo.value!.path)],
+    );
+    isLoading.value = false;
 
-    try {
-      print("=== Registration Started ===");
-      print("API URL: ${ApiUrl.userRegister}");
-
-      final api = ApiClient();
-
-      final role = await RoleController().getRole();
-      final registrationCtrl = Get.put(RegistrationController());
-
-      //===Date Convert ISO===================
-      String dobText = registrationCtrl.dateOfBirthController.text.trim();
-      String dobIso = "${dobText}T00:00:00Z";
-
-      /// Prepare fields for multipart
-      final fields = {
-        "fullName": registrationCtrl.fullNameController.text.trim(),
-        "email": email.trim(),
-        "phone": phone.trim(),
-        "password": password.trim(),
-        "role": role?.name ?? "",
-        "dateOfBirth": dobIso,
-        "gender": registrationCtrl.genderController.text.trim().toUpperCase(),
-        "bloodGroup": registrationCtrl.bloodGroupController.text.trim(),
-        "membershipId": registrationCtrl.membershipIDController.text.trim(),
-        "address": registrationCtrl.addressController.text.trim(),
-        "emergencyContact": registrationCtrl.emergencyContactController.text.trim(),
-        "identificationNumber": registrationCtrl.identificationController.text.trim(),
-      };
-
-      /// Send multipart request
-      final res = await api.multipart(
-        url: ApiUrl.userRegister,
-        fields: fields,
-        files: [
-          MultipartFileData(
-            key: "profile_image",
-            path: photo.value!.path,
-          )
-        ],
-      );
-
-      isLoading.value = false;
-
-      if (res.statusCode == 201 && res.body["success"] == true) {
-        Get.snackbar("Success", res.body["message"] ?? "User registered successfully");
-        Get.toNamed(RoutePath.verification);
-      } else {
-        Get.snackbar("Error", res.body["message"] ?? "Failed to register user");
-      }
-    } catch (e) {
-      isLoading.value = false;
-      Get.snackbar("Error", "Something went wrong: $e");
+    if (res.isOk) {
+      AppSnackBar.success(res.message);
+      final emailSent = res.data is Map ? res.data['emailSent'] != false : true;
+      Get.offAllNamed(RoutePath.verification, arguments: {"email": data['email'], "emailSent": emailSent});
+      Future.delayed(const Duration(milliseconds: 600), SignupFlow.clear);
+    } else {
+      AppSnackBar.fail(res.message);
     }
   }
 
+  @override
+  void onClose() {
+    allergiesController.dispose();
+    chronicController.dispose();
+    contactNameController.dispose();
+    contactRelationController.dispose();
+    super.onClose();
+  }
 }

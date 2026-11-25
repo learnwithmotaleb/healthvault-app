@@ -1,278 +1,192 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:shimmer/shimmer.dart';
 
-import '../../../../../core/responsive_layout/dimensions/dimensions.dart';
 import '../../../../../core/routes/route_path.dart';
+import '../../../../../service/socket_service.dart';
 import '../../../../../utils/app_colors/app_colors.dart';
 import '../../../../../utils/app_text_style/app_text_style.dart';
-import '../../../../../utils/assets_image/app_images.dart';
 import '../../../../../utils/static_strings/static_strings.dart';
-import '../../../appointment/widget/appointment_card.dart';
+import '../../../../widget/hv_ui.dart';
+import '../../../appointment/widget/appointment_tile.dart';
+import '../../provider_bottom_nav/controller/provider_bottom_nav_controller.dart';
 import '../controller/provider_home_controller.dart';
-import 'package:healthvault/service/api_url.dart';
 
-class ProviderHomeScreen extends StatefulWidget {
+class ProviderHomeScreen extends StatelessWidget {
   const ProviderHomeScreen({super.key});
 
   @override
-  State<ProviderHomeScreen> createState() => _ProviderHomeScreenState();
-}
-
-class _ProviderHomeScreenState extends State<ProviderHomeScreen> {
-
-  // ✅ Single controller — removed ProviderProfileController dependency
-  final homeController = Get.put(ProviderHomeController());
-
-  @override
   Widget build(BuildContext context) {
+    final c = Get.isRegistered<ProviderHomeController>() ? Get.find<ProviderHomeController>() : Get.put(ProviderHomeController());
+
     return Scaffold(
       backgroundColor: AppColors.whiteColor,
       body: RefreshIndicator(
-        onRefresh: () => homeController.refresh(), // ✅ pull to refresh
-        child: Column(
-          children: [
-
-            // ── Header ──
+        onRefresh: c.refresh,
+        child: Obx(() {
+          final p = c.profile;
+          return ListView(padding: EdgeInsets.zero, children: [
             Container(
-              width: double.infinity,
-              height: Dimensions.h(155),
-              decoration: BoxDecoration(
+              padding: EdgeInsets.fromLTRB(16, MediaQuery.of(context).padding.top + 16, 16, 20),
+              decoration: const BoxDecoration(
                 color: AppColors.primaryColor,
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(16),
-                  bottomRight: Radius.circular(16),
-                ),
+                borderRadius: BorderRadius.only(bottomLeft: Radius.circular(16), bottomRight: Radius.circular(16)),
               ),
-              child: Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: Dimensions.w(16)),
-                  child: Obx(() {
-
-                    // ✅ Shimmer while loading profile
-                    if (homeController.isLoading.value &&
-                        homeController.fullName.isEmpty) {
-                      return Shimmer.fromColors(
-                        baseColor: Colors.grey.shade300,
-                        highlightColor: Colors.grey.shade100,
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: CircleAvatar(
-                            radius: Dimensions.w(24),
-                            backgroundColor: Colors.white,
-                          ),
-                          title: Container(
-                              width: 120, height: 16, color: Colors.white),
-                          subtitle: Container(
-                            width: 80,
-                            height: 14,
-                            color: Colors.white,
-                            margin: const EdgeInsets.only(top: 4),
-                          ),
-                          trailing: Container(
-                            width: Dimensions.w(40),
-                            height: Dimensions.w(40),
-                            decoration: const BoxDecoration(
-                              color: Colors.white,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-
-                    // ✅ Use homeController getters directly
-                    final imageUrl = homeController.fullImageUrl;
-
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: CircleAvatar(
-                        radius: Dimensions.w(24),
-                        backgroundColor: AppColors.primaryColor,
-                        backgroundImage: imageUrl.isNotEmpty
-                            ? NetworkImage(
-                          "${ApiUrl.mainDomain}/$imageUrl",
-                        )
-                            : AssetImage(AppImages.motalebImage)
-                        as ImageProvider,
-                      ),
-                      title: Text(
-                        homeController.fullName.isNotEmpty
-                            ? homeController.fullName
-                            : "Guest",
-                        style: AppTextStyles.title.copyWith(
-                          color: AppColors.whiteColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      subtitle: Text(
-                        // ✅ Show specialization instead of generic welcome
-                        homeController.specialization.isNotEmpty
-                            ? homeController.specialization
-                            : AppStrings.welcomeBack.tr,
-                        style: AppTextStyles.body.copyWith(
-                          color: AppColors.whiteColor.withOpacity(0.9),
-                          fontSize: 14,
-                        ),
-                      ),
-                      trailing: GestureDetector(
-                        onTap: () => Get.toNamed(RoutePath.notification),
-                        child: Container(
-                          width: Dimensions.w(40),
-                          height: Dimensions.w(40),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: AppColors.whiteColor.withOpacity(0.5),
-                            ),
-                          ),
-                          child: const Icon(
-                            Icons.notifications,
-                            color: AppColors.whiteColor,
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
+              child: Row(children: [
+                Avatar(image: p?.profileImage, name: c.fullName, radius: 26),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(c.fullName.isEmpty ? AppStrings.welcomeBack.tr : c.fullName,
+                        style: AppTextStyles.title.copyWith(color: Colors.white, fontSize: 17)),
+                    Text(c.specialization.isNotEmpty ? c.specialization : AppStrings.welcomeBack.tr,
+                        style: AppTextStyles.body.copyWith(color: Colors.white70)),
+                  ]),
                 ),
-              ),
-            ),
-
-            SizedBox(height: Dimensions.h(10)),
-
-            // ── Total Appointments Card ──
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: Dimensions.w(16)),
-              child: Container(
-                width: Dimensions.w(309),
-                height: Dimensions.h(121),
-                padding: EdgeInsets.symmetric(vertical: Dimensions.h(16)),
-                decoration: BoxDecoration(
-                  color: AppColors.primaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: AppColors.providerSelectionColor,
-                    width: 1,
-                  ),
-                ),
-                child: Obx(() {
-                  final total = homeController.appointments.length;
-                  return Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        "$total",
-                        style: AppTextStyles.title.copyWith(
-                          color: AppColors.providerSelectionColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 24,
-                        ),
-                      ),
-                      SizedBox(height: Dimensions.h(4)),
-                      Text(
-                        "Total",
-                        style: AppTextStyles.title.copyWith(
-                          color: AppColors.providerSelectionColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      SizedBox(height: Dimensions.h(4)),
-                      Text(
-                        AppStrings.appointmentRequest.tr,
-                        style: AppTextStyles.body.copyWith(
-                          color: AppColors.providerSelectionColor,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  );
-                }),
-              ),
-            ),
-
-            SizedBox(height: Dimensions.h(16)),
-
-            // ── Recent Appointments Title ──
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: Dimensions.w(16)),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  AppStrings.recentAppointments.tr,
-                  style: AppTextStyles.body.copyWith(
-                    color: AppColors.providerHomePageColor,
-                  ),
-                ),
-              ),
-            ),
-
-            SizedBox(height: Dimensions.h(8)),
-
-            // ── Appointment List ──
-            Expanded(
-              child: Obx(() {
-
-                // ✅ Shimmer for appointments
-                if (homeController.isLoading.value) {
-                  return ListView.separated(
-                    itemCount: 5,
-                    separatorBuilder: (_, __) =>
-                        SizedBox(height: Dimensions.h(5)),
-                    itemBuilder: (context, index) => Shimmer.fromColors(
-                      baseColor: Colors.grey.shade300,
-                      highlightColor: Colors.grey.shade100,
-                      child: Container(
-                        margin: EdgeInsets.symmetric(
-                            horizontal: Dimensions.w(16)),
-                        height: Dimensions.h(80),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
+                Obx(() {
+                  final n = RealtimeService.to.unreadCount.value;
+                  return IconButton(
+                    onPressed: () => Get.toNamed(RoutePath.notification),
+                    icon: Badge(
+                      isLabelVisible: n > 0,
+                      label: Text('$n'),
+                      child: const Icon(Icons.notifications, color: Colors.white),
                     ),
                   );
-                }
-
-                if (homeController.appointments.isEmpty) {
-                  return const Center(
-                    child: Text("No appointments found"),
-                  );
-                }
-
-                return ListView.separated(
-                  itemCount: homeController.appointments.length,
-                  separatorBuilder: (_, __) =>
-                      SizedBox(height: Dimensions.h(5)),
-                  itemBuilder: (context, index) {
-                    final appointment = homeController.appointments[index];
-                    final user = appointment.normalUserId;
-                    final service = appointment.serviceId;
-
-                    return AppointmentCard(
-                      doctorName: user?.fullName ?? "Unknown",
-                      service: service?.title ?? "",
-                      price: "\$${service?.price ?? 0}",
-                      dateTime: appointment.appointmentDateTime ?? "",
-                      status: appointment.status ?? "",
-                      onTap: () {
-                        Get.toNamed(
-                          RoutePath.providerDetails,
-                          arguments: appointment.sId.toString(),
-                        );
-                      },
-                    );
-                  },
-                );
-              }),
+                }),
+              ]),
             ),
-          ],
-        ),
+            if (p != null && !p.isApproved)
+              HVCardBox(
+                margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                color: p.approvalStatus == 'REJECTED' ? const Color(0xFFFDECEA) : const Color(0xFFFFF6E0),
+                borderColor: p.approvalStatus == 'REJECTED' ? AppColors.emergencyColor : const Color(0xFFE09B00),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Icon(p.approvalStatus == 'REJECTED' ? Icons.block : Icons.hourglass_top,
+                      color: p.approvalStatus == 'REJECTED' ? AppColors.emergencyColor : const Color(0xFFE09B00)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(
+                        p.approvalStatus == 'REJECTED' ? 'Your profile was not approved'.tr : 'Your profile is under review'.tr,
+                        style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        p.approvalStatus == 'REJECTED'
+                            ? (p.rejectionReason ?? 'Contact support for details.'.tr)
+                            : "Patients can find and book you once an admin approves your account. We'll notify you.".tr,
+                        style: AppTextStyles.body.copyWith(fontSize: 12),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                        onPressed: () => Get.toNamed(RoutePath.supportChat),
+                        child: Text('Contact support'.tr),
+                      ),
+                    ]),
+                  ),
+                ]),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              child: Row(children: [
+                _stat('Requests'.tr, c.pendingCount.value, const Color(0xFFE09B00), () => _openTasks('PENDING')),
+                const SizedBox(width: 8),
+                _stat('Upcoming'.tr, c.upcomingCount.value, AppColors.primaryColor, () => _openTasks('upcoming')),
+                const SizedBox(width: 8),
+                _stat('Completed'.tr, c.completedCount.value, AppColors.loginLogoRadiusColor, () => _openTasks('COMPLETED')),
+              ]),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: Row(children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => Get.toNamed(RoutePath.providerSchedule),
+                    icon: const Icon(Icons.schedule),
+                    label: Text('Availability'.tr),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => Get.toNamed(RoutePath.providerService),
+                    icon: const Icon(Icons.medical_services_outlined),
+                    label: Text('Services'.tr),
+                  ),
+                ),
+              ]),
+            ),
+            Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: SectionTitle(AppStrings.appointmentRequest.tr)),
+            if (c.isLoading.value && c.pending.isEmpty)
+              const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
+            else if (c.pending.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text('No new requests'.tr, style: AppTextStyles.body.copyWith(color: AppColors.hintColor)),
+              )
+            else
+              ...c.pending.map((a) => AppointmentTile(
+                    a: a,
+                    showPatient: true,
+                    onTap: () => Get.toNamed(RoutePath.appointmentDetails, arguments: {"id": a.id}),
+                    trailing: c.busy.contains(a.id)
+                        ? const LinearProgressIndicator()
+                        : Row(children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                style: OutlinedButton.styleFrom(foregroundColor: AppColors.emergencyColor),
+                                onPressed: () async {
+                                  final r = await Dialogs.input(title: 'Decline request'.tr, hint: 'Reason (optional)'.tr);
+                                  if (r != null) c.setStatus(a, 'CANCELLED', reason: r);
+                                },
+                                child: Text('Decline'.tr),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: FilledButton(
+                                style: FilledButton.styleFrom(backgroundColor: AppColors.primaryColor),
+                                onPressed: () => c.setStatus(a, 'CONFIRMED'),
+                                child: Text('Confirm'.tr),
+                              ),
+                            ),
+                          ]),
+                  )),
+            Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: SectionTitle('Upcoming'.tr)),
+            if (c.upcoming.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text('No confirmed appointments'.tr, style: AppTextStyles.body.copyWith(color: AppColors.hintColor)),
+              ),
+            ...c.upcoming.map((a) => AppointmentTile(
+                  a: a,
+                  showPatient: true,
+                  onTap: () => Get.toNamed(RoutePath.appointmentDetails, arguments: {"id": a.id}),
+                )),
+            const SizedBox(height: 24),
+          ]);
+        }),
       ),
     );
   }
+
+  void _openTasks(String status) {
+    if (Get.isRegistered<ProviderBottomNavController>()) {
+      Get.find<ProviderBottomNavController>().openTasks(status);
+    }
+  }
+
+  Widget _stat(String label, int value, Color color, VoidCallback onTap) => Expanded(
+        child: HVCardBox(
+          margin: EdgeInsets.zero,
+          color: color.withValues(alpha: 0.08),
+          borderColor: color.withValues(alpha: 0.5),
+          onTap: onTap,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Column(children: [
+            Text('$value', style: AppTextStyles.title.copyWith(color: color, fontSize: 22)),
+            Text(label, style: AppTextStyles.body.copyWith(color: color, fontSize: 12)),
+          ]),
+        ),
+      );
 }

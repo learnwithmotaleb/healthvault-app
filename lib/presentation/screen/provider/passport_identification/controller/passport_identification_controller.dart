@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/cupertino.dart';
 import 'package:get/get.dart';
+import '../../../user/auth/signup/signup_flow.dart';
 import 'package:healthvault/helper/local_db/local_db.dart';
 import 'package:healthvault/presentation/screen/category_screen/pharmacy/controller/pharmacy_controller.dart';
 import 'package:healthvault/presentation/screen/provider/doctor_identification/controller/doctor_indentification_controller.dart';
@@ -13,6 +14,10 @@ import '../../../../../core/routes/route_path.dart';
 import '../../../../../helper/role_controller/role_controller.dart';
 import '../../../../../service/api_service.dart';
 import '../../../../../service/api_url.dart';
+import '../../../../../service/session_service.dart';
+import '../../../../../global/language/controller/language_controller.dart';
+import '../../../../../helper/tost_message/show_snackbar.dart';
+import '../../../../widget/hv_ui.dart';
 import '../../../user/auth/registaration/controller/registration_controller.dart';
 import '../../../user/auth/signup/controller/signup_controller.dart';
 import '../../doctor_identification/controller/service_selection_controller.dart';
@@ -75,8 +80,12 @@ class PassportIdentificationController extends GetxController {
     super.onInit();
     loadRole();
     // ✅ Get the existing controller instead of creating a new one
-    doctorController = Get.find<DoctorIdentificationController>();
-    pharmacyController = Get.find<PharmacyIdentificationController>();
+    doctorController = Get.isRegistered<DoctorIdentificationController>()
+        ? Get.find<DoctorIdentificationController>()
+        : Get.put(DoctorIdentificationController(Get.find<SignupController>().selectedProviderKey.value));
+    pharmacyController = Get.isRegistered<PharmacyIdentificationController>()
+        ? Get.find<PharmacyIdentificationController>()
+        : Get.put(PharmacyIdentificationController());
     
     
     final signupCtrl = Get.find<SignupController>();
@@ -139,108 +148,84 @@ class PassportIdentificationController extends GetxController {
   /// Image picker
   final ImagePicker _picker = ImagePicker();
 
+  final acceptPrivacy = false.obs;
+
+  /// POST /user/register (multipart: data + identification_images + profile_image)
   Future<void> registration() async {
-    if (profilePhoto == null) {
-      Get.snackbar("Error", "Please upload a profile photo first");
+    if (photoForIdentification.value == null) {
+      AppSnackBar.fail("Please upload an identification document first");
+      return;
+    }
+    if (!acceptPrivacy.value) {
+      AppSnackBar.fail("Please accept the privacy policy to continue");
       return;
     }
 
-    if (photoForIdentification.value == null) {
-      Get.snackbar("Error", "Please upload an identification photo first");
-      return;
+    final isDoctor = providerTypeKey.toUpperCase() == "DOCTOR";
+    final isEnglish = Get.isRegistered<LanguageController>() ? Get.find<LanguageController>().isEnglish.value : true;
+
+    final Map<String, dynamic> data = {
+      "role": "PROVIDER",
+      "fullName": name.trim(),
+      "email": email.trim().toLowerCase(),
+      "password": password,
+      "phone": phone.trim(),
+      "providerTypeId": providerTypeId,
+      "acceptPrivacyPolicy": true,
+      "language": isEnglish ? "en" : "el",
+      if (serviceId.isNotEmpty) "serviceId": [serviceId],
+      if (SessionService.playerId != null) "playerId": SessionService.playerId,
+    };
+
+    if (isDoctor) {
+      final d = doctorController;
+      final address = d.addressController.text.trim();
+      data.addAll({
+        "specialization": d.specialisationsController.text.trim(),
+        "medicalLicenseNumber": d.medicalLicenseNumberController.text.trim(),
+        if (d.idOrPassPortNumberController.text.trim().isNotEmpty)
+          "identificationNumber": d.idOrPassPortNumberController.text.trim(),
+        if (int.tryParse(d.yearOfExperienceController.text.trim()) != null)
+          "yearsOfExperience": int.parse(d.yearOfExperienceController.text.trim()),
+        if (splitCsv(d.languagesSpokenController.text).isNotEmpty) "languages": splitCsv(d.languagesSpokenController.text),
+        if (address.isNotEmpty) "address": address,
+        if (address.isNotEmpty) "location": address.split(',').last.trim(),
+        if (d.aboutController.text.trim().isNotEmpty) "about": d.aboutController.text.trim(),
+      });
+    } else {
+      final p = pharmacyController;
+      final address = p.addressController.text.trim();
+      data.addAll({
+        if (p.nameController.text.trim().isNotEmpty) "displayName": p.nameController.text.trim(),
+        if (p.businessRegisterNumberController.text.trim().isNotEmpty)
+          "businessRegistrationNumber": p.businessRegisterNumberController.text.trim(),
+        if (p.drugLicenseNumberController.text.trim().isNotEmpty)
+          "drugLicenseNumber": p.drugLicenseNumberController.text.trim(),
+        if (address.isNotEmpty) "address": address,
+        if (address.isNotEmpty) "location": address.split(',').last.trim(),
+        if (p.aboutController.text.trim().isNotEmpty) "about": p.aboutController.text.trim(),
+      });
     }
 
     isLoading.value = true;
-
-    try {
-      final api = ApiClient();
-
-      // Prepare files
-      List<MultipartFileData> files = [
-        MultipartFileData(key: "profile_image", path: profilePhoto!.path),
+    final res = await ApiClient().sendForm(
+      url: ApiUrl.userRegister,
+      isToken: false,
+      data: data,
+      files: [
         MultipartFileData(key: "identification_images", path: photoForIdentification.value!.path),
-      ];
+        if (profilePhoto != null) MultipartFileData(key: "profile_image", path: profilePhoto!.path),
+      ],
+    );
+    isLoading.value = false;
 
-      Map<String, String> fields = {};
-
-      if (providerTypeKey == "DOCTOR") {
-        // Parse languages
-        String languagesText = doctorController.languagesSpokenController.text.trim();
-        List<String> languagesList = languagesText.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-
-        // Create a JSON object for complex data
-        Map<String, dynamic> jsonData = {
-          "fullName": name.trim(),
-          "email": email.trim(),
-          "phone": phone.trim(),
-          "password": password,
-          "role": role?.name ?? "PROVIDER",
-          "providerTypeId": providerTypeId,
-          "providerTypeString": providerTypeKey,
-          "specialization": doctorController.specialisationsController.text.trim(),
-          "identificationNumber": doctorController.medicalLicenseNumberController.text.trim(),
-          "medicalLicenseNumber": doctorController.medicalLicenseNumberController.text.trim(),
-          "serviceId": [serviceId], // Array
-          "yearsOfExperience": int.tryParse(doctorController.yearOfExperienceController.text.trim()) ?? 0, // Number
-          "languages": languagesList, // Array
-          "address": doctorController.addressController.text.trim(),
-          "about": doctorController.aboutController.text.trim(),
-        };
-
-        // Convert all fields to JSON string
-        fields = {
-          "data": jsonEncode(jsonData), // Send entire object as JSON
-        };
-
-      } else {
-        Map<String, dynamic> jsonData = {
-          "fullName": pharmacyController.nameController.text.trim(),
-          "email": email.trim(),
-          "phone": phone.trim(),
-          "password": password,
-          "role": role?.name ?? "PROVIDER",
-          "providerTypeId": providerTypeId,
-          "providerTypeString": other.toUpperCase(),
-          "displayName": pharmacyController.nameController.text.trim(),
-          "businessRegistrationNumber": name.trim(),
-          "serviceId": [serviceId], // Array
-          "drugLicenseNumber": pharmacyController.drugLicenseNumberController.text.trim(),
-          "address": pharmacyController.addressController.text.trim(),
-          "about": pharmacyController.aboutController.text.trim(),
-        };
-
-        fields = {
-          "data": jsonEncode(jsonData),
-        };
-      }
-
-      print('=== SENDING DATA ===');
-      print('Fields: $fields');
-
-      final res = await api.multipart(
-        url: ApiUrl.userRegister,
-        fields: fields,
-        files: files,
-      );
-
-      isLoading.value = false;
-
-      if (res.statusCode == 201 && res.body["success"] == true) {
-        Get.snackbar("Success", res.body["message"] ?? "Registered successfully");
-        Get.toNamed(RoutePath.verification);
-      } else {
-        Get.snackbar("Error", res.body["message"] ?? "Registration failed");
-        print('Error details: ${res.body}');
-      }
-    } catch (e) {
-      isLoading.value = false;
-      Get.snackbar("Error", "Something went wrong: $e");
-      print('Exception: $e');
+    if (res.isOk) {
+      AppSnackBar.success(res.message);
+      final emailSent = res.data is Map ? res.data['emailSent'] != false : true;
+      Get.offAllNamed(RoutePath.verification, arguments: {"email": data['email'], "emailSent": emailSent});
+      Future.delayed(const Duration(milliseconds: 600), SignupFlow.clear);
+    } else {
+      AppSnackBar.fail(res.message);
     }
   }
-
-
-
-
-
 }

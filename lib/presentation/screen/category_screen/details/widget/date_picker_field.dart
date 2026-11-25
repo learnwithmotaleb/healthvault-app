@@ -11,8 +11,12 @@ class DatePickerField extends StatelessWidget {
   final FormFieldValidator<String>? validator;
   final ValueChanged<DateTime>? onDateSelected;
   final EdgeInsets contentPadding;
+  final DateTime? firstDate;
+  final DateTime? lastDate;
 
   const DatePickerField({
+    this.firstDate,
+    this.lastDate,
     Key? key,
     required this.controller,
     this.focusNode,
@@ -25,9 +29,9 @@ class DatePickerField extends StatelessWidget {
   Future<void> _pickDate(BuildContext context) async {
     final pickedDate = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
+      initialDate: (lastDate != null && lastDate!.isBefore(DateTime.now())) ? lastDate! : DateTime.now(),
+      firstDate: firstDate ?? DateTime(1900),
+      lastDate: lastDate ?? DateTime(2100),
     );
 
     if (pickedDate != null) {

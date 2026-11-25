@@ -1,15 +1,14 @@
 import 'package:get/get.dart';
-import 'package:healthvault/helper/tost_message/show_snackbar.dart';
 
-import '../../../../../service/api_service.dart';
-import '../../../../../service/api_url.dart';
-import '../model/provider_profile_model.dart';
+import '../../../../../data/models/user_models.dart';
+import '../../../../../service/session_service.dart';
 
+/// Provider account (GET /user/getMe).
 class ProviderProfileController extends GetxController {
-  final ApiClient _apiClient = ApiClient();
-
   final isLoading = false.obs;
-  final profile = Rxn<ProviderProfileModel>();
+
+  Rx<AccountModel?> get account => SessionService.account;
+  ProfileModel? get profile => account.value?.profile;
 
   @override
   void onInit() {
@@ -18,41 +17,8 @@ class ProviderProfileController extends GetxController {
   }
 
   Future<void> getProviderProfile() async {
-    try {
-      isLoading.value = true;
-
-      final response = await _apiClient.get(
-        url: ApiUrl.getProviderProfile,
-        isToken: true,
-      );
-
-      if (response.statusCode == 200) {
-        profile.value = ProviderProfileModel.fromJson(response.body);
-
-        // ✅ Print all data to console for debugging
-        print("💡 Provider Profile Fetched:");
-        print("Full Name: ${profile.value?.data?.fullName}");
-        print("Email: ${profile.value?.data?.email}");
-        print("Phone: ${profile.value?.data?.phone}");
-        print("Provider Profile Image: ${profile.value?.data?.provider?.profileImage}");
-        print("Provider Specialization: ${profile.value?.data?.provider?.specialization}");
-        print("Provider Type: ${profile.value?.data?.providerType?.label}");
-        print("Services:");
-        profile.value?.data?.services?.forEach((service) {
-          print(" - ${service.title} : ${service.price}");
-        });
-
-      } else {
-        AppSnackBar.fail(
-          title: "Error",
-          response.statusText ?? "Something went wrong",
-        );
-      }
-    } catch (e) {
-      AppSnackBar.fail(title: "Error", e.toString());
-    } finally {
-      isLoading.value = false;
-    }
+    isLoading.value = account.value == null;
+    await SessionService.refreshMe();
+    isLoading.value = false;
   }
-
 }

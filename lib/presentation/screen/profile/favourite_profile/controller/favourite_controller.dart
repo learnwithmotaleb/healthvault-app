@@ -1,16 +1,23 @@
 import 'package:get/get.dart';
-import 'package:healthvault/service/api_url.dart';
+
+import '../../../../../data/models/app_models.dart';
+import '../../../../../data/models/json.dart';
+import '../../../../../helper/tost_message/show_snackbar.dart';
 import '../../../../../service/api_service.dart';
-import '../model/favorite_model.dart';
+import '../../../../../service/api_url.dart';
 
+/// Global favorites store – GET/POST/DELETE /favorite.
 class FavouriteController extends GetxController {
-  var isLoading = true.obs;
-  var favoriteList = <Data>[].obs;
+  static FavouriteController get to => Get.isRegistered<FavouriteController>()
+      ? Get.find<FavouriteController>()
+      : Get.put(FavouriteController(), permanent: true);
 
-  // ✅ Fast O(1) lookup Set — used by ALL screens to check favorite status
-  var favoriteIds = <String>{}.obs;
-
-  final ApiClient apiClient = ApiClient();
+  final _api = ApiClient();
+  final favorites = <FavoriteModel>[].obs;
+  final ids = <String>{}.obs;
+  final isLoading = false.obs;
+  final error = RxnString();
+  final _busy = <String>{};
 
   @override
   void onInit() {
@@ -18,104 +25,49 @@ class FavouriteController extends GetxController {
     fetchFavorites();
   }
 
-  /// Fetch all favorites from API
-  void fetchFavorites() async {
-    try {
-      isLoading.value = true;
-      final response = await apiClient.get(
-        url: ApiUrl.getAllFavorite,
-        isToken: true,
-      );
+  bool isFavorite(String providerId) => ids.contains(providerId);
 
-      if (response.statusCode == 200) {
-        final model = FavoriteModel.fromJson(response.body);
-        if (model.success == true && model.data != null) {
-          favoriteList.value = model.data!;
-
-          // ✅ Sync ID set from loaded list
-          favoriteIds.value = model.data!
-              .where((d) => d.providerId?.sId != null)
-              .map((d) => d.providerId!.sId!)
-              .toSet();
-        } else {
-          favoriteList.clear();
-          favoriteIds.value = {};
-        }
-      } else {
-        Get.snackbar('Error', response.statusText ?? 'Something went wrong');
-      }
-    } catch (e) {
-      Get.snackbar('Error', 'Failed to fetch favorites: $e');
-    } finally {
-      isLoading.value = false;
-    }
-  }
-
-  /// ✅ Check if a provider is favorited — use this in any screen
-  bool isFavorite(String providerId) => favoriteIds.contains(providerId);
-
-  /// ✅ Toggle by provider ID only — works from any screen
-  Future<void> toggleFavorite(String providerId, {String? providerName}) async {
-    if (isFavorite(providerId)) {
-      await _removeFavorite(providerId, providerName: providerName);
+  Future<void> fetchFavorites() async {
+    isLoading.value = true;
+    error.value = null;
+    final res = await _api.get(url: ApiUrl.getAllFavorite);
+    isLoading.value = false;
+    if (res.isOk) {
+      final list = Paged.parse(res.data, FavoriteModel.fromJson).items;
+      favorites.assignAll(list);
+      ids
+        ..clear()
+        ..addAll(list.map((e) => e.providerId.isNotEmpty ? e.providerId : (e.provider?.id ?? '')));
     } else {
-      await _addFavorite(providerId, providerName: providerName);
+      error.value = res.message;
     }
   }
 
-  Future<void> _addFavorite(String providerId, {String? providerName}) async {
-    // ✅ Reassign .value to trigger Obx
-    favoriteIds.value = {...favoriteIds, providerId};
+  Future<void> toggleFavorite(String providerId, {String? providerName}) async {
+    if (providerId.isEmpty || _busy.contains(providerId)) return;
+    _busy.add(providerId);
+    final wasFav = isFavorite(providerId);
+    // optimistic update
+    wasFav ? ids.remove(providerId) : ids.add(providerId);
+    ids.refresh();
 
-    try {
-      final response = await apiClient.post(
-        url: ApiUrl.createFavorite(providerId),
-        isToken: true,
-      );
+    final res = wasFav
+        ? await _api.delete(url: ApiUrl.removeFavorite(providerId))
+        : await _api.post(url: ApiUrl.createFavorite(providerId));
+    _busy.remove(providerId);
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        fetchFavorites(); // refresh full list
-        Get.snackbar('Success', '${providerName ?? 'Provider'} added to favorites');
+    if (res.isOk || (!wasFav && res.statusCode == 409)) {
+      if (wasFav) {
+        favorites.removeWhere((f) => f.providerId == providerId);
+        AppSnackBar.success("${providerName ?? 'Provider'.tr} ${'removed from favorites'.tr}");
       } else {
-        // Rollback
-        favoriteIds.value = favoriteIds.where((id) => id != providerId).toSet();
-        Get.snackbar('Error', response.body['message'] ?? 'Failed to add favorite');
+        AppSnackBar.success("${providerName ?? 'Provider'.tr} ${'added to favorites'.tr}");
+        fetchFavorites();
       }
-    } catch (e) {
-      // Rollback
-      favoriteIds.value = favoriteIds.where((id) => id != providerId).toSet();
-      Get.snackbar('Error', 'Failed to add favorite: $e');
-    }
-  }
-
-  Future<void> _removeFavorite(String providerId, {String? providerName}) async {
-    // ✅ Reassign .value to trigger Obx
-    favoriteIds.value = favoriteIds.where((id) => id != providerId).toSet();
-
-    final removedItem = favoriteList.firstWhereOrNull(
-          (d) => d.providerId?.sId == providerId,
-    );
-    if (removedItem != null) favoriteList.remove(removedItem);
-
-    try {
-      final response = await apiClient.delete(
-        url: ApiUrl.removeFavorite(providerId),
-        isToken: true,
-      );
-
-      if (response.statusCode == 200 || response.statusCode == 204) {
-        Get.snackbar('Removed', '${providerName ?? 'Provider'} removed from favorites');
-      } else {
-        // Rollback
-        favoriteIds.value = {...favoriteIds, providerId};
-        if (removedItem != null) favoriteList.add(removedItem);
-        Get.snackbar('Error', response.body['message'] ?? 'Failed to remove favorite');
-      }
-    } catch (e) {
-      // Rollback
-      favoriteIds.value = {...favoriteIds, providerId};
-      if (removedItem != null) favoriteList.add(removedItem);
-      Get.snackbar('Error', 'Failed to remove favorite: $e');
+    } else {
+      wasFav ? ids.add(providerId) : ids.remove(providerId);
+      ids.refresh();
+      AppSnackBar.fail(res.message);
     }
   }
 }

@@ -35,7 +35,7 @@ class InternetWrapper extends StatelessWidget {
                       )
                     ),
                     SizedBox(height: 8),
-                    Text("Please check your internet",style: AppTextStyles.body.copyWith(
+                    Text("Please check your internet".tr,style: AppTextStyles.body.copyWith(
                         decoration: TextDecoration.none
                     )),
                   ],

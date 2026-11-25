@@ -1,66 +1,60 @@
 import 'package:flutter/cupertino.dart';
 import 'package:get/get.dart';
-import 'package:healthvault/presentation/screen/user/auth/forget/controller/forget_controller.dart';
 
 import '../../../../../../core/routes/route_path.dart';
 import '../../../../../../helper/tost_message/show_snackbar.dart';
 import '../../../../../../service/api_service.dart';
 import '../../../../../../service/api_url.dart';
+import '../../forget/controller/forget_controller.dart';
 
-class VerifyController extends GetxController{
-
+/// Step 2 of forgot password → POST /auth/verify-otp
+class VerifyController extends GetxController {
   final otpController = TextEditingController();
   RxBool isLoading = false.obs;
   RxBool isLoadingResend = false.obs;
 
-  Future<void> emailVerifyProcess() async {
-    final otp = otpController.text.trim();
-    if (otp.length != 6) {
-      AppSnackBar.fail(title: "OTP verification","Please enter a valid 6-digit OTP");
-      return;
-    }
+  String email = '';
 
-    try {
-      isLoading.value = true;
-
-      final api = ApiClient();
-
-
-      final res = await api.post(
-        url: ApiUrl.verifyOtp,
-        isToken: false,
-        body: {
-          "email":Get.find<ForgetController>().emailController.text,  // <-- Add email here
-          "otp": otp,
-        },
-        isBasic: false,);
-
-      isLoading.value = false;
-
-      if (res.statusCode == 200 && res.body["success"] == true) {
-        AppSnackBar.success( title: "OTP verified",  res.body["message"] ?? "OTP verified successfully");
-        Get.toNamed(RoutePath.reset);
-      } else {
-        AppSnackBar.fail(title: "OTP verification",res.body["message"] ?? "OTP verification failed");
-      }
-    } catch (e) {
-      isLoading.value = false;
-      AppSnackBar.fail(title: "OTP verified", "Error: $e");
+  @override
+  void onInit() {
+    super.onInit();
+    final args = Get.arguments;
+    if (args is Map && args['email'] != null) {
+      email = args['email'].toString();
+    } else if (Get.isRegistered<ForgetController>()) {
+      email = Get.find<ForgetController>().email;
     }
   }
 
-  resendOtpProcess() async {
-    // return await AuthService.resendOtpService(
-    //   isLoading: isLoadingResend,
-    //   email: Get.find<ForgotController>().emailController.text,
-    // );
+  Future<void> emailVerifyProcess() async {
+    final otp = otpController.text.trim();
+    if (otp.length != 6) {
+      AppSnackBar.fail("Please enter a valid 6-digit code", title: "OTP verification");
+      return;
+    }
+    isLoading.value = true;
+    final res = await ApiClient().post(url: ApiUrl.verifyOtp, isToken: false, body: {"email": email, "otp": otp});
+    isLoading.value = false;
+
+    if (res.isOk) {
+      AppSnackBar.success(res.data is Map ? (res.data['message'] ?? res.message) : res.message, title: "OTP verified");
+      Get.toNamed(RoutePath.reset, arguments: {"email": email});
+    } else {
+      AppSnackBar.fail(res.message, title: "OTP verification");
+    }
+  }
+
+  Future<void> resendOtpProcess() async {
+    isLoadingResend.value = true;
+    final res =
+        await ApiClient().post(url: ApiUrl.resendOtp, isToken: false, body: {"email": email, "purpose": "reset"});
+    isLoadingResend.value = false;
+    res.isOk ? AppSnackBar.success("A new code has been sent") : AppSnackBar.fail(res.message);
   }
 
   @override
   void onClose() {
-    // Dispose controllers & focus nodes to prevent memory leaks
-    otpController.dispose();
+    // otpController is disposed by PinCodeTextField (autoDisposeControllers).
     super.onClose();
   }
-
 }

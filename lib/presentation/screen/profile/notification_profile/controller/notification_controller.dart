@@ -1,101 +1,126 @@
+import 'dart:async';
+
 import 'package:get/get.dart';
-import 'package:healthvault/service/api_url.dart';
+
+import '../../../../../data/models/app_models.dart';
+import '../../../../../data/models/json.dart';
+import '../../../../../helper/tost_message/show_snackbar.dart';
 import '../../../../../service/api_service.dart';
-import '../model/notification_model.dart';
+import '../../../../../service/api_url.dart';
+import '../../../../../service/notification_router.dart';
+import '../../../../../service/socket_service.dart';
 
 class NotificationController extends GetxController {
-  final ApiClient _apiClient = ApiClient();
-
-  // Pagination state
+  final _api = ApiClient();
+  final items = <NotificationModel>[].obs;
+  final unreadOnly = false.obs;
+  final type = ''.obs;
+  final isLoading = false.obs;
+  final isLoadingMore = false.obs;
+  final error = RxnString();
   int _page = 1;
-  final int _limit = 10;
-  int _totalPage = 1;
+  bool _hasMore = false;
+  StreamSubscription? _sub;
 
-  var isLoading = false.obs;
-  var hasMore = true.obs;
-
-  // Notification list
-  RxList<Result> notificationList = <Result>[].obs;
+  static const types = ['APPOINTMENT', 'MEDICATION', 'INSURANCE', 'DOCUMENT', 'SUPPORT', 'SOS', 'PROVIDER', 'GENERAL'];
 
   @override
   void onInit() {
     super.onInit();
-    getAllNotifications();
+    fetch();
+    _sub = RealtimeService.to.notifications.listen((n) {
+      if (!unreadOnly.value || !n.isRead) {
+        if (type.value.isEmpty || type.value == n.type) items.insert(0, n);
+      }
+    });
   }
 
-  /// ================= Get Notifications =================
-  Future<void> getAllNotifications({bool loadMore = false}) async {
-    if (isLoading.value || !hasMore.value) return;
+  Map<String, dynamic> _q(int page) => {
+        "page": page,
+        "limit": 20,
+        if (unreadOnly.value) "isRead": false,
+        "type": type.value,
+      };
 
+  Future<void> fetch() async {
+    _page = 1;
     isLoading.value = true;
-
-    final url =
-        "${ApiUrl.getAllNotification}?page=$_page&limit=$_limit";
-
-    final response = await _apiClient.get(
-      url: url,
-      isToken: true,
-    );
-
-    if (response.statusCode == 200) {
-      final model = NotificationModel.fromJson(response.body);
-
-      final data = model.data;
-      final meta = data?.meta;
-      final results = data?.result ?? [];
-
-      _totalPage = meta?.totalPage ?? 1;
-
-      if (!loadMore) {
-        notificationList.clear();
-      }
-
-      notificationList.addAll(results);
-
-      if (_page >= _totalPage) {
-        hasMore.value = false;
-      } else {
-        _page++;
-      }
-    }
-
+    error.value = null;
+    final res = await _api.get(url: ApiUrl.getAllNotification, query: _q(1));
     isLoading.value = false;
-  }
-
-  /// ================= Delete Notification =================
-  Future<void> deleteNotification(String notificationId) async {
-    final url = ApiUrl.removeNotification(notificationId);
-
-    final response = await _apiClient.delete(
-      url: url,
-      isToken: true,
-    );
-
-    if (response.statusCode == 200) {
-      // Remove from list instantly (smooth UX)
-      notificationList.removeWhere(
-            (item) => item.sId == notificationId,
-      );
-
-      Get.snackbar(
-        "Success",
-        "Notification deleted successfully",
-        snackPosition: SnackPosition.BOTTOM,
-      );
+    if (res.isOk) {
+      final p = Paged.parse(res.data, NotificationModel.fromJson);
+      items.assignAll(p.items);
+      _hasMore = p.hasMore;
+      final unread = J.integer(p.meta['unreadCount']);
+      if (unread != null) RealtimeService.to.unreadCount.value = unread;
     } else {
-      Get.snackbar(
-        "Error",
-        "Failed to delete notification",
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      error.value = res.message;
     }
   }
 
-
-  /// ================= Load More =================
-  void loadMoreNotifications() {
-    if (hasMore.value) {
-      getAllNotifications(loadMore: true);
+  Future<void> loadMore() async {
+    if (!_hasMore || isLoadingMore.value) return;
+    isLoadingMore.value = true;
+    final res = await _api.get(url: ApiUrl.getAllNotification, query: _q(_page + 1));
+    isLoadingMore.value = false;
+    if (res.isOk) {
+      final p = Paged.parse(res.data, NotificationModel.fromJson);
+      _page++;
+      items.addAll(p.items);
+      _hasMore = p.hasMore;
     }
+  }
+
+  void setUnreadOnly(bool v) {
+    unreadOnly.value = v;
+    fetch();
+  }
+
+  void setType(String v) {
+    type.value = v;
+    fetch();
+  }
+
+  Future<void> open(NotificationModel n) async {
+    if (!n.isRead) {
+      n.isRead = true;
+      items.refresh();
+      final rt = RealtimeService.to;
+      if (rt.unreadCount.value > 0) rt.unreadCount.value--;
+      _api.patch(url: ApiUrl.readNotification(n.id));
+    }
+    await NotificationRouter.open(n.data, title: n.title, message: n.message);
+  }
+
+  Future<void> markAllRead() async {
+    final res = await _api.patch(url: ApiUrl.readAllNotifications);
+    if (res.isOk) {
+      for (final n in items) {
+        n.isRead = true;
+      }
+      items.refresh();
+      RealtimeService.to.unreadCount.value = 0;
+      if (unreadOnly.value) fetch();
+    } else {
+      AppSnackBar.fail(res.message);
+    }
+  }
+
+  Future<void> remove(NotificationModel n) async {
+    items.remove(n);
+    final res = await _api.delete(url: ApiUrl.removeNotification(n.id));
+    if (!res.isOk) {
+      AppSnackBar.fail(res.message);
+      fetch();
+    } else if (!n.isRead && RealtimeService.to.unreadCount.value > 0) {
+      RealtimeService.to.unreadCount.value--;
+    }
+  }
+
+  @override
+  void onClose() {
+    _sub?.cancel();
+    super.onClose();
   }
 }

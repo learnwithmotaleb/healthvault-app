@@ -16,6 +16,7 @@ import '../../../../../utils/app_colors/app_colors.dart';
 import '../../../../../utils/app_text_style/app_text_style.dart';
 import '../../../category_screen/details/widget/add_document_widget.dart';
 import '../controller/passport_identification_controller.dart';
+import '../../../../widget/privacy_consent.dart';
 
 class PassportIdentificationScreen extends StatefulWidget {
   const PassportIdentificationScreen({super.key});
@@ -121,11 +122,13 @@ class _PassportIdentificationScreenState extends State<PassportIdentificationScr
               ),
             ),
 
-            SizedBox(height: Dimensions.h(100)),
+            SizedBox(height: Dimensions.h(24)),
+            PrivacyConsent(value: controller.acceptPrivacy),
+            SizedBox(height: Dimensions.h(24)),
 
             Obx(
                   () => HVButton(
-                label: controller.isLoading.value ? "Please wait..." : AppStrings.next.tr,
+                label: controller.isLoading.value ? "Please wait...".tr : AppStrings.next.tr,
                 onPressed: (){
                   controller.registration();
                 },

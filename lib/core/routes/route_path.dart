@@ -92,4 +92,21 @@ class RoutePath {
 
 
 
+
+  // ==================== New (API v1) ====================
+  static const String bookAppointment = '/BookAppointmentScreen';
+  static const String appointmentDetails = '/AppointmentDetailsScreen';
+  static const String providerAppointmentDetails = '/ProviderAppointmentDetailsScreen';
+  static const String todayDoses = '/TodayDosesScreen';
+  static const String adherence = '/AdherenceScreen';
+  static const String healthTrends = '/HealthTrendsScreen';
+  static const String addHealthLog = '/AddHealthLogScreen';
+  static const String addInsurance = '/AddInsuranceScreen';
+  static const String insuranceDetails = '/InsuranceDetailsScreen';
+  static const String documentDetails = '/DocumentDetailsScreen';
+  static const String uploadDocument = '/UploadDocumentScreen';
+  static const String supportChat = '/SupportChatScreen';
+  static const String sosHistory = '/SosHistoryScreen';
+  static const String notificationSettings = '/NotificationSettingsScreen';
+  static const String aboutUs = '/AboutUsScreen';
 }

@@ -1,3 +1,4 @@
+import 'package:healthvault/helper/local_db/local_db.dart';
 
 import 'package:flutter/cupertino.dart';
 import 'package:get/get.dart';
@@ -25,6 +26,7 @@ class OnBoardingController extends GetxController{
   //Next Page
   void nextPage(){
     if(currentPageIndex.value == 2){
+      SharePrefsHelper.setOnboardSeen(true);
       Get.toNamed(RoutePath.languages);
     }else{
       int page = currentPageIndex.value + 1;

@@ -1,32 +1,78 @@
 import 'dart:io';
-import 'package:flutter/cupertino.dart';
+
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:image_picker/image_picker.dart';
-import '../../../../../helper/local_db/local_db.dart';
+
+import '../../../../../data/models/json.dart';
+import '../../../../../data/models/user_models.dart';
+import '../../../../../helper/tost_message/show_snackbar.dart';
 import '../../../../../service/api_service.dart';
 import '../../../../../service/api_url.dart';
-import '../../../../../helper/local_db/shareprefs_helper.dart';
-import 'package:healthvault/helper/tost_message/show_snackbar.dart';
-import '../../profile/model/user_profile_model.dart';
+import '../../../../../service/session_service.dart';
+import '../../../../widget/hv_ui.dart';
 
+class ContactRow {
+  final name = TextEditingController();
+  final phone = TextEditingController();
+  final relation = TextEditingController();
+
+  ContactRow([EmergencyContact? c]) {
+    if (c != null) {
+      name.text = c.name;
+      phone.text = c.phone;
+      relation.text = c.relation ?? '';
+    }
+  }
+
+  bool get isEmpty => name.text.trim().isEmpty && phone.text.trim().isEmpty;
+
+  void dispose() {
+    name.dispose();
+    phone.dispose();
+    relation.dispose();
+  }
+}
+
+/// PATCH /user/updateMe (JSON or multipart data + profile_image)
 class EditProfileController extends GetxController {
+  final _api = ApiClient();
+  final formKey = GlobalKey<FormState>();
 
-  final apiClient = ApiClient();
-
+  // common
   final nameController = TextEditingController();
   final numberController = TextEditingController();
+  final addressController = TextEditingController();
+  // patient
   final dateOfBirthController = TextEditingController();
   final genderController = TextEditingController();
+  final identificationController = TextEditingController();
+  final allergiesController = TextEditingController();
+  final chronicController = TextEditingController();
+  final gender = RxnString();
+  final bloodGroup = RxnString();
+  final dateOfBirth = Rxn<DateTime>();
+  final contacts = <ContactRow>[].obs;
+  // provider
+  final displayNameController = TextEditingController();
+  final aboutController = TextEditingController();
+  final locationController = TextEditingController();
+  final specializationController = TextEditingController();
+  final experienceController = TextEditingController();
+  final languagesController = TextEditingController();
+  final catalogue = <ServiceModel>[].obs;
+  final selectedServiceIds = <String>{}.obs;
+  final ownServiceIds = <String>{};
 
-  final formKey = GlobalKey<FormState>();
   final Rx<File?> pickedImage = Rx<File?>(null);
-  var existingImageUrl = ''.obs;
-  final RxBool isLoading = false.obs;
-  final ImagePicker _picker = ImagePicker();
+  final existingImageUrl = ''.obs;
+  final isLoading = false.obs;
+  final isSaving = false.obs;
 
-  String get savedRole => SharePrefsHelper.getRole()?.toUpperCase() ?? "";
-  bool get isProvider => savedRole == "PROVIDER";
-  bool get isNormalUser => savedRole == "NORMALUSER";
+  bool get isProvider => SessionService.isProvider;
+  bool get isNormalUser => SessionService.isPatient;
+
+  static const genders = ['MALE', 'FEMALE', 'OTHER'];
+  static const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
   @override
   void onInit() {
@@ -35,164 +81,157 @@ class EditProfileController extends GetxController {
   }
 
   Future<void> loadExistingProfile() async {
-    try {
-      isLoading.value = true;
-
-      final url = isProvider
-          ? ApiUrl.getProviderProfile
-          : ApiUrl.getUserProfile;
-
-      final response = await apiClient.get(url: url, isToken: true);
-      print("📦 EditProfile Response: ${response.body}");
-
-      if (response.statusCode == 200) {
-        final body = response.body;
-
-        if (body["success"] == true && body["data"] != null) {
-          final data = body["data"];
-          ProfileData? profile;
-
-          if (data is List && data.isNotEmpty) {
-            final userMap = data[0] as Map<String, dynamic>;
-
-            if (isNormalUser) {
-              final details = (userMap["normalUserDetails"] as List?)
-                  ?.isNotEmpty == true
-                  ? userMap["normalUserDetails"][0] as Map<String, dynamic>
-                  : <String, dynamic>{};
-
-              final merged = {
-                ...userMap,
-                ...details,
-                "profile_image": details["profile_image"] ?? "",
-              };
-              profile = ProfileData.fromJson(merged);
-
-            } else if (isProvider) {
-              final details = (userMap["providerDetails"] as List?)
-                  ?.isNotEmpty == true
-                  ? userMap["providerDetails"][0] as Map<String, dynamic>
-                  : <String, dynamic>{};
-
-              final merged = {
-                ...userMap,
-                ...details,
-                "profile_image": details["profile_image"] ?? "",
-              };
-              profile = ProfileData.fromJson(merged);
-            }
-
-          } else if (data is Map<String, dynamic>) {
-            profile = ProfileData.fromJson(data);
-          }
-
-          if (profile != null) {
-            nameController.text = profile.fullName ?? "";
-            genderController.text = profile.gender ?? "";
-            numberController.text = profile.emergencyContact ?? "";
-
-            if (profile.dateOfBirth != null) {
-              dateOfBirthController.text =
-                  profile.dateOfBirth!.split("T").first;
-            }
-
-            // ✅ Fix backslash before building URL
-            if (profile.profileImage != null &&
-                profile.profileImage!.isNotEmpty) {
-              final cleanPath = profile.profileImage!
-                  .replaceAll('\\\\', '/')  // handles \\
-                  .replaceAll('\\', '/');   // handles \
-
-              existingImageUrl.value =
-              "${ApiUrl.mainDomain}/$cleanPath";
-
-              print("🖼 Image URL: ${existingImageUrl.value}");
-            }
-
-            print("✅ Pre-filled: ${profile.fullName} | ${profile.gender} | ${profile.dateOfBirth}");
-          }
-        } else {
-          AppSnackBar.fail(body["message"] ?? "Failed to load profile");
-        }
-      } else {
-        AppSnackBar.fail("Failed to load profile");
-      }
-    } catch (e) {
-      print("❌ loadExistingProfile error: $e");
-      AppSnackBar.fail("Error loading profile: $e");
-    } finally {
-      isLoading.value = false;
+    isLoading.value = true;
+    final acc = await SessionService.refreshMe() ?? SessionService.account.value;
+    final p = acc?.profile;
+    if (acc != null) {
+      nameController.text = p?.fullName.isNotEmpty == true ? p!.fullName : acc.fullName;
+      numberController.text = acc.phone ?? '';
+      addressController.text = p?.address ?? '';
+      existingImageUrl.value = ApiUrl.fileUrl(p?.profileImage);
     }
+    if (p != null && isNormalUser) {
+      dateOfBirth.value = p.dateOfBirth;
+      dateOfBirthController.text = p.dateOfBirth == null ? '' : Fmt.date(p.dateOfBirth);
+      gender.value = p.gender;
+      genderController.text = p.gender ?? '';
+      bloodGroup.value = p.bloodGroup;
+      identificationController.text = p.identificationNumber ?? '';
+      allergiesController.text = p.allergies.join(', ');
+      chronicController.text = p.chronicConditions.join(', ');
+      final list = p.emergencyContacts.isNotEmpty
+          ? p.emergencyContacts
+          : ((p.emergencyContact ?? '').isNotEmpty ? [EmergencyContact(name: '', phone: p.emergencyContact!)] : <EmergencyContact>[]);
+      contacts.assignAll(list.map(ContactRow.new));
+    }
+    if (p != null && isProvider) {
+      displayNameController.text = p.displayName ?? '';
+      aboutController.text = p.about ?? '';
+      locationController.text = p.location ?? '';
+      specializationController.text = p.specialization ?? '';
+      experienceController.text = p.yearsOfExperience?.toString() ?? '';
+      languagesController.text = p.languages.join(', ');
+      selectedServiceIds
+        ..clear()
+        ..addAll(p.serviceIds.isNotEmpty ? p.serviceIds : p.services.map((s) => s.id));
+      ownServiceIds.addAll(p.services.where((s) => !s.isAdminCreated && s.providerId != null).map((s) => s.id));
+      final key = p.providerType?.key;
+      if (key != null && key.isNotEmpty) {
+        final res = await _api.get(url: ApiUrl.adminCreateService(key), isToken: false);
+        if (res.isOk) catalogue.assignAll(J.list(res.data, ServiceModel.fromJson));
+      }
+    }
+    isLoading.value = false;
   }
 
   Future<void> pickImage() async {
-    final XFile? image = await _picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 80,
-    );
-    if (image != null) {
-      pickedImage.value = File(image.path);
-      existingImageUrl.value = "";
+    final f = await FilePick.chooseSource(allowPdf: false);
+    if (f.isNotEmpty) pickedImage.value = f.first;
+  }
+
+  Future<void> pickDob() async {
+    final d = await Dialogs.pickDate(initial: dateOfBirth.value ?? DateTime(1990), first: DateTime(1900), last: DateTime.now());
+    if (d != null) {
+      dateOfBirth.value = d;
+      dateOfBirthController.text = Fmt.date(d);
     }
+  }
+
+  void addContact() {
+    if (contacts.length >= 5) return AppSnackBar.info("Maximum 5 emergency contacts");
+    contacts.add(ContactRow());
+  }
+
+  void removeContact(ContactRow r) {
+    contacts.remove(r);
+    r.dispose();
+  }
+
+  void toggleService(String id) {
+    selectedServiceIds.contains(id) ? selectedServiceIds.remove(id) : selectedServiceIds.add(id);
   }
 
   Future<void> updateProfile() async {
-    if (!formKey.currentState!.validate()) {
-      AppSnackBar.fail("Please fill all required fields correctly");
-      return;
+    if (!(formKey.currentState?.validate() ?? false)) return;
+    final data = <String, dynamic>{
+      "fullName": nameController.text.trim(),
+      "phone": numberController.text.trim(),
+      "address": addressController.text.trim(),
+    };
+    if (isNormalUser) {
+      final list = contacts.where((c) => !c.isEmpty).toList();
+      if (list.any((c) => c.name.text.trim().isEmpty || c.phone.text.trim().isEmpty)) {
+        return AppSnackBar.fail("Each emergency contact needs a name and a phone");
+      }
+      data.addAll({
+        if (dateOfBirth.value != null) "dateOfBirth": Fmt.apiDate(dateOfBirth.value!),
+        if (gender.value != null) "gender": gender.value,
+        if (bloodGroup.value != null) "bloodGroup": bloodGroup.value,
+        "identificationNumber": identificationController.text.trim(),
+        "allergies": splitCsv(allergiesController.text).take(30).toList(),
+        "chronicConditions": splitCsv(chronicController.text).take(30).toList(),
+        "emergencyContacts": list
+            .map((c) => EmergencyContact(
+                  name: c.name.text.trim(),
+                  phone: c.phone.text.trim(),
+                  relation: c.relation.text.trim(),
+                ).toJson())
+            .toList(),
+        if (list.isNotEmpty) "emergencyContact": list.first.phone.text.trim(),
+      });
+    } else {
+      data.addAll({
+        "displayName": displayNameController.text.trim(),
+        "about": aboutController.text.trim(),
+        "location": locationController.text.trim(),
+        "specialization": specializationController.text.trim(),
+        if (int.tryParse(experienceController.text.trim()) != null)
+          "yearsOfExperience": int.parse(experienceController.text.trim()),
+        "languages": splitCsv(languagesController.text),
+        "serviceId": {...selectedServiceIds, ...ownServiceIds}.toList(),
+      });
     }
 
-    try {
-      isLoading.value = true;
-
-      // ✅ ONLY these 3 fields — backend schema accepts nothing else
-      final Map<String, String> fields = {
-        "fullName": nameController.text.trim(),
-        "dateOfBirth": dateOfBirthController.text.trim(),
-        "gender": genderController.text.toUpperCase().trim(),
-      };
-
-      print("📤 Sending fields: $fields"); // ✅ verify in console
-
-      final response = await apiClient.patchWithMultipart(
-        url: ApiUrl.updateMyProfile,
-        fields: fields,
-        imageFile: pickedImage.value,
-        isToken: true,
-      );
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        isLoading.value = false;
-        AppSnackBar.success("Profile updated successfully");
-        await Future.delayed(const Duration(milliseconds: 300));
-        Get.back();
-        return;
-      } else {
-        String errorMessage = "Failed to update profile";
-        if (response.body is Map && response.body["message"] != null) {
-          errorMessage = response.body["message"];
-        } else if (response.body is Map && response.body["error"] != null) {
-          final errorList = response.body["error"];
-          if (errorList is List && errorList.isNotEmpty) {
-            errorMessage = errorList[0]["message"] ?? errorMessage;
-          }
-        }
-        AppSnackBar.fail(errorMessage);
-      }
-    } catch (e) {
-      AppSnackBar.fail("Error updating profile: $e");
-    } finally {
-      isLoading.value = false;
+    isSaving.value = true;
+    final res = await _api.sendForm(
+      url: ApiUrl.updateMyProfile,
+      method: "PATCH",
+      data: data,
+      files: [if (pickedImage.value != null) MultipartFileData(key: "profile_image", path: pickedImage.value!.path)],
+    );
+    isSaving.value = false;
+    if (res.isOk) {
+      await SessionService.refreshMe();
+      AppSnackBar.success("Profile updated");
+      Get.back(result: true);
+    } else {
+      AppSnackBar.fail(res.message);
     }
   }
 
-
   @override
   void onClose() {
-    nameController.dispose();
-    numberController.dispose();
-    dateOfBirthController.dispose();
-    genderController.dispose();
+    for (final c in [
+      nameController,
+      numberController,
+      addressController,
+      dateOfBirthController,
+      genderController,
+      identificationController,
+      allergiesController,
+      chronicController,
+      displayNameController,
+      aboutController,
+      locationController,
+      specializationController,
+      experienceController,
+      languagesController,
+    ]) {
+      c.dispose();
+    }
+    for (final r in contacts) {
+      r.dispose();
+    }
     super.onClose();
   }
 }

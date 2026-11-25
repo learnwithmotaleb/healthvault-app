@@ -123,7 +123,7 @@ class _MedicalLicenseScreenState extends State<MedicalLicenseScreen> {
 
             Obx(
                   () => HVButton(
-                label: controller.isLoading.value ? "Please wait..." : AppStrings.next.tr,
+                label: controller.isLoading.value ? "Please wait...".tr : AppStrings.next.tr,
                 onPressed: (){
                   Get.toNamed(RoutePath.passportPhoto);
                 },

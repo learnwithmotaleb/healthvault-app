@@ -4,7 +4,10 @@ class SharePrefsKeys {
   static const String userId = "user_id";       // Logged-in user ID
   static const String profileId = "profile_id";       // Logged-in user ID
   static const String onboardSeen = "onboard_seen"; // NEW
-  static const String refreshToken = "refresh_token"; // <-- Add this for refresh token
+  static const String refreshToken = "refresh_token";
+  static const String userJson = "user_json";
+  static const String emergencyJson = "emergency_json";
+  static const String playerId = "onesignal_player_id";
 
 
 }

@@ -1,3 +1,4 @@
+import 'package:get/get.dart';
 
 // lib/widgets/blood_group_field.dart
 import 'package:flutter/material.dart';
@@ -47,7 +48,7 @@ class BloodGroupField extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              Text('Select Blood Group', style: AppTextStyles.title),
+              Text('Select Blood Group'.tr, style: AppTextStyles.title),
               const SizedBox(height: 8),
               Flexible(
                 child: ListView.separated(

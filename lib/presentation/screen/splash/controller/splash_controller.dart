@@ -7,7 +7,7 @@ class SplashController extends GetxController {
 
   void start({required String nextRoute}) {
     _timer?.cancel();
-    _timer = Timer(const Duration(seconds: 5), () {
+    _timer = Timer(const Duration(milliseconds: 2500), () {
       Get.offAllNamed(nextRoute);
     });
   }

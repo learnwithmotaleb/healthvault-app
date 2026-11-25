@@ -1,157 +1,94 @@
-import 'package:collection/collection.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:get/get_core/src/get_main.dart';
-import 'package:get/get_navigation/src/extension_navigation.dart';
-import 'package:get/get_rx/src/rx_types/rx_types.dart';
-import 'package:get/get_state_manager/src/simple/get_controllers.dart';
-import 'package:healthvault/helper/local_db/local_db.dart';
+import 'package:get/get.dart';
 
+import '../../../../../data/models/json.dart';
+import '../../../../../data/models/user_models.dart';
+import '../../../../../helper/athens_time.dart';
 import '../../../../../helper/tost_message/show_snackbar.dart';
 import '../../../../../service/api_service.dart';
 import '../../../../../service/api_url.dart';
-import '../model/model.dart';
+import '../../../../widget/hv_ui.dart';
 
+/// Weekly availability – days + slots (Greek time).
 class ProviderEditScheduleController extends GetxController {
-  final startTime = TextEditingController();
-  final endTime = TextEditingController();
-
+  final _api = ApiClient();
+  final days = <AvailabilityDay>[].obs;
   final isLoading = false.obs;
-
-  /// provider availability list
-  final availabilityList = <Data>[].obs;
-
-  final selectedDay = "".obs;
-
-  final ApiClient _apiClient = ApiClient();
-
-  var profileId = SharePrefsHelper.getProfileId();
+  final isSaving = false.obs;
+  final error = RxnString();
 
   @override
   void onInit() {
-    getProviderAvailability(profileId!);
-    print("Profile Id: $profileId");
     super.onInit();
+    fetch();
   }
 
-  /// ---------------- DELETE Availability Slot ----------------
-  Future<void> deleteAvailabilitySlot({
-    required String availabilityDayId,
-    required String availabilitySlotId,
-  }) async {
-    final response = await _apiClient.delete(
-      url: ApiUrl.deleteProviderAvailability,
-      body: {
-        "availabilityDayId": availabilityDayId,
-        "availabilitySlotId": availabilitySlotId,
-      },
-      isToken: true,
-    );
+  AvailabilityDay? dayFor(String key) => days.firstWhereOrNull((d) => d.dayOfWeek == key);
 
-    if (response.statusCode == 200) {
-      AppSnackBar.success("Slot deleted successfully");
-      await getProviderAvailability(profileId!);
-    } else {
-      AppSnackBar.fail(response.statusText ?? "Delete failed");
-    }
-  }
-
-  /// ---------------- GET Provider Availability ----------------
-  Future<void> getProviderAvailability(String profileId) async {
+  Future<void> fetch() async {
     isLoading.value = true;
-
-    final response = await _apiClient.get(
-      url: ApiUrl.getProviderAvailability(profileId),
-      isToken: true,
-    );
-
+    error.value = null;
+    final res = await _api.get(url: ApiUrl.myAvailabilityDays);
     isLoading.value = false;
-
-    if (response.statusCode == 200) {
-      final model = AvailabilityDayModel.fromJson(response.body);
-      availabilityList.assignAll(model.data ?? []);
+    if (res.isOk) {
+      days.assignAll(J.list(res.data is List ? res.data : J.map(res.data)['data'], AvailabilityDay.fromJson));
     } else {
-      AppSnackBar.fail(response.statusText ?? "Failed to load schedule");
+      error.value = res.message;
     }
   }
 
-  /// ---------------- Create Availability Day ----------------
-  Future<String?> createAvailabilityDay() async {
-    final response = await _apiClient.post(
-      url: ApiUrl.createAvailabilityDay,
-      body: {"dayOfWeek": selectedDay.value},
-      isToken: true,
-    );
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      AppSnackBar.success("Day added successfully");
-      return response.body["data"]["_id"];
-    } else {
-      AppSnackBar.fail(response.statusText ?? "Failed to add day");
-      return null;
+  /// Ensures the day exists, then adds a slot.
+  Future<void> addSlot(String dayKey, String start, String end) async {
+    if (AthensTime.minutesOf(end) <= AthensTime.minutesOf(start)) {
+      return AppSnackBar.fail("End time must be after start time");
     }
+    isSaving.value = true;
+    var day = dayFor(dayKey);
+    if (day == null) {
+      final r = await _api.post(url: ApiUrl.createAvailabilityDay, body: {"dayOfWeek": dayKey});
+      if (r.isOk && r.data is Map) {
+        day = AvailabilityDay.fromJson(J.map(r.data));
+      } else if (r.statusCode == 409) {
+        await fetch();
+        day = dayFor(dayKey);
+      } else {
+        isSaving.value = false;
+        return AppSnackBar.fail(r.message);
+      }
+    }
+    if (day == null) {
+      isSaving.value = false;
+      return AppSnackBar.fail("Could not create the day");
+    }
+    final res = await _api.post(url: ApiUrl.createAvailabilitySlot, body: {
+      "availabilityDayId": day.id,
+      "startTime": start,
+      "endTime": end,
+    });
+    isSaving.value = false;
+    if (res.isOk) {
+      AppSnackBar.success("Time slot added");
+    } else {
+      AppSnackBar.fail(res.message);
+    }
+    fetch();
   }
 
-  /// ---------------- Create Availability Slot ----------------
-  Future<void> createAvailabilitySlot(String availabilityDayId) async {
-    final response = await _apiClient.post(
-      url: ApiUrl.createAvailabilitySlot,
-      body: {
-        "availabilityDayId": availabilityDayId,
-        "startTime": startTime.text,
-        "endTime": endTime.text,
-      },
-      isToken: true,
-    );
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      AppSnackBar.success("Schedule updated successfully");
-      clearFields();
-      Get.back();
-    } else {
-      AppSnackBar.fail(response.statusText ?? "Failed to create slot");
-    }
+  Future<void> deleteSlot(AvailabilitySlot s) async {
+    final res = await _api.delete(url: ApiUrl.deleteAvailabilitySlot(s.id));
+    res.isOk ? AppSnackBar.success("Time slot removed") : AppSnackBar.fail(res.message);
+    fetch();
   }
 
-  /// ---------------- Combined Action ----------------
-  Future<void> submitSchedule() async {
-    if (selectedDay.isEmpty ||
-        startTime.text.isEmpty ||
-        endTime.text.isEmpty) {
-      AppSnackBar.fail("All fields are required");
+  Future<void> deleteDay(AvailabilityDay d) async {
+    if (!await Dialogs.confirm(
+      title: 'Remove day'.tr,
+      message: "${d.dayOfWeek.tr}: ${'Remove this day and all its time slots?'.tr}",
+      destructive: true,
+    )) {
       return;
     }
-
-    String? dayId;
-
-    /// ✅ Check if selected day already exists — reuse its ID
-    final existingDay = availabilityList.firstWhereOrNull(
-          (day) => day.dayOfWeek == selectedDay.value,
-    );
-
-    if (existingDay != null) {
-      /// Day already exists, no need to create
-      dayId = existingDay.sId;
-    } else {
-      /// Day doesn't exist, create it first
-      dayId = await createAvailabilityDay();
-    }
-
-    if (dayId != null) {
-      await createAvailabilitySlot(dayId);
-      await getProviderAvailability(profileId!);
-    }
-  }
-
-  void clearFields() {
-    startTime.clear();
-    endTime.clear();
-    selectedDay.value = "";
-  }
-
-  @override
-  void onClose() {
-    startTime.dispose();
-    endTime.dispose();
-    super.onClose();
+    final res = await _api.delete(url: ApiUrl.deleteAvailabilityDay(d.id));
+    res.isOk ? AppSnackBar.success("Day removed") : AppSnackBar.fail(res.message);
+    fetch();
   }
 }
